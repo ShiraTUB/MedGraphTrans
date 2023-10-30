@@ -9,7 +9,7 @@ import random
 from KnowledgeExtraction.trie_structure import Trie
 from KnowledgeExtraction.knowledge_extractor import KnowledgeExtractor
 from torch_geometric.data import HeteroData
-from src.preprocess_graph.subgraph import Graph, Subgraph
+from src.preprocess_graph.subgraph import Graph
 
 from config import OPENAI_API_KEY
 
@@ -173,7 +173,7 @@ def initiate_question_graph(graph: nx.Graph, question: str, answer_choices: [str
     question_embeddings = openai.Embedding.create(input=[question], model="text-embedding-ada-002")['data'][0]['embedding']
     question_index = random.randint(10 ** 9, (10 ** 10) - 1)
 
-    graph.add_node(question_index, embeddings=question_embeddings, type="question", index=question_index, name=question)
+    graph.add_node(question_index, embedding=question_embeddings, type="question", index=question_index, name=question)
 
     for question_entity_index in question_entities_indices_list:
         target_node = prime_kg.nodes[question_entity_index]
@@ -184,7 +184,7 @@ def initiate_question_graph(graph: nx.Graph, question: str, answer_choices: [str
         answer_embeddings = openai.Embedding.create(input=[answer_choice], model="text-embedding-ada-002")['data'][0]['embedding']
 
         answer_index = random.randint(10 ** 9, (10 ** 10) - 1)
-        graph.add_node(answer_index, embeddings=answer_embeddings, type="answer", index=answer_index, name=answer_choice)
+        graph.add_node(answer_index, embedding=answer_embeddings, type="answer", index=answer_index, name=answer_choice)
         graph.add_edge(question_index, answer_index, relation="question_answer")
 
         for answer_entity_index in answer_entities_dict[answer_choice]:
@@ -237,9 +237,9 @@ def process_raw_graph_data(graph_data):
         knowledge_nodes_string_to_int_mapping
     )
 
-    subgraph = Subgraph(question_node_tensor, answer_nodes_tensor, knowledge_nodes_tensor, question_knowledge_tensor, answer_knowledge_tensor, question_answer_tensor,
-                        knowledge_knowledge_tensor)
-    graph.insert_subgraph(subgraph)
+    # subgraph = Subgraph(question_node_tensor, answer_nodes_tensor, knowledge_nodes_tensor, question_knowledge_tensor, answer_knowledge_tensor, question_answer_tensor,
+    #                     knowledge_knowledge_tensor)
+    # graph.insert_subgraph(subgraph)
 
     return graph
 

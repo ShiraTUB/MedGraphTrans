@@ -5,21 +5,6 @@ from torch.nn.functional import pad
 from torch_geometric.data import HeteroData
 
 
-class Subgraph:
-    def __init__(self, person_nodes, message_nodes, know_nodes, person_msg, msg_know, know_know):
-        self.person_nodes = person_nodes
-        self.message_nodes = message_nodes
-        self.know_nodes = know_nodes
-
-        self.person_msg = person_msg
-        self.msg_know = msg_know
-        self.know_know = know_know
-
-        self.person_padding = person_nodes.shape[1]
-        self.message_padding = message_nodes.shape[1]
-        self.know_padding = know_nodes.shape[1] if type(know_nodes) != type(None) and know_nodes.ndim > 1 else 0
-
-
 class Graph(object):
     def __init__(self):
         self.subgraphs = []

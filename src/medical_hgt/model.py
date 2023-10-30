@@ -39,15 +39,19 @@ class HGT(torch.nn.Module):
 
 
 class MedicalQAModel(pl.LightningModule):
-    def __init__(self):
+    def __init__(self, encoder, decoder, tgt_emb, generator, lr=3e-4, optimizer=torch.optim.AdamW):
         super().__init__()
-        self.encoder = NodeEncoder()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.generator = generator
+        self.optimizer = optimizer
+        self.learning_rate = lr
+        self.validation_step_outputs = []
         self.model = HGT(768, 128, 2)
 
     def forward(self, questions):
-        encoded_questions = [self.encoder(q) for q in questions]
-        x = torch.stack(encoded_questions)
-        return self.model(x, self.edge_index, self.edge_type)
+        encodings = self.encoder(x_dict, edge_index_dict)
+        return self.decoder(self.tgt_emb(tgt), encodings, src_mask=src_mask, tgt_mask=tgt_mask)
 
     def score_pairs(self, question_emb, answer_embs):
         # Implement a scoring function.
