@@ -9,7 +9,6 @@ import random
 from KnowledgeExtraction.trie_structure import Trie
 from KnowledgeExtraction.knowledge_extractor import KnowledgeExtractor
 from torch_geometric.data import HeteroData
-from src.preprocess_graph.subgraph import Graph
 
 from config import OPENAI_API_KEY
 
@@ -65,26 +64,6 @@ def extract_knowledge_from_kg(question: str, trie: Trie, question_entities_list=
         return None, None
 
     return extracted_edges, extracted_edge_indices
-
-    # """We offer two ways to construct the subgraph:
-    #     1. if node indices were stored in the trie they can be used to extract the subgraph directly from the kg
-    #     2. if not, an elementary subgraph is created from the extracted graph edges. Please make adjustments
-    #         according to your kg and its attributes."""
-    # if extracted_edge_indices is not None:
-    #     node_indices = np.unique(np.asarray(np.concatenate(extracted_edge_indices)))
-    #     subgraph = knowledge_graph.subgraph(node_indices.tolist())
-    #
-    # else:
-    #     subgraph = nx.Graph()
-    #     for index, (source, target, relation) in enumerate(extracted_edges):
-    #         if not subgraph.has_node(source):
-    #             subgraph.add_node(source)
-    #         if not subgraph.has_node(target):
-    #             subgraph.add_node(target)
-    #         if not subgraph.has_edge(source, target):
-    #             subgraph.add_edge(source, target, relation={relation})
-    #
-    # return subgraph, extracted_edges
 
 
 def convert_nx_to_hetero_data(graph: nx.Graph, node_types: list, relation_types: list, meta_relation_dict: dict) -> HeteroData:
@@ -170,27 +149,29 @@ def initiate_question_graph_dict(question: str, answer_choices: [str], question_
 
 
 def initiate_question_graph(graph: nx.Graph, question: str, answer_choices: [str], question_entities_indices_list: list, answer_entities_dict: dict, prime_kg: nx.Graph) -> nx.Graph:
-    question_embeddings = openai.Embedding.create(input=[question], model="text-embedding-ada-002")['data'][0]['embedding']
+    question_embeddings = torch.tensor(openai.Embedding.create(input=[question], model="text-embedding-ada-002")['data'][0]['embedding'])
     question_index = random.randint(10 ** 9, (10 ** 10) - 1)
 
     graph.add_node(question_index, embedding=question_embeddings, type="question", index=question_index, name=question)
 
     for question_entity_index in question_entities_indices_list:
         target_node = prime_kg.nodes[question_entity_index]
+        target_node_type = target_node['type']
         graph.add_node(question_entity_index, **target_node)
-        graph.add_edge(question_index, question_entity_index, relation="question_knowledge")
+        graph.add_edge(question_index, question_entity_index, relation=f"question_{target_node_type}")
 
-    for answer_choice in answer_choices:
-        answer_embeddings = openai.Embedding.create(input=[answer_choice], model="text-embedding-ada-002")['data'][0]['embedding']
+    for choice_index, answer_choice in enumerate(answer_choices):
+        answer_embeddings = torch.tensor(openai.Embedding.create(input=[answer_choice], model="text-embedding-ada-002")['data'][0]['embedding'])
 
         answer_index = random.randint(10 ** 9, (10 ** 10) - 1)
-        graph.add_node(answer_index, embedding=answer_embeddings, type="answer", index=answer_index, name=answer_choice)
+        graph.add_node(answer_index, embedding=answer_embeddings, type="answer", index=answer_index, name=f'{answer_choice}_{choice_index}')
         graph.add_edge(question_index, answer_index, relation="question_answer")
 
         for answer_entity_index in answer_entities_dict[answer_choice]:
             target_node = prime_kg.nodes[answer_entity_index]
+            target_node_type = target_node['type']
             graph.add_node(answer_entity_index, **target_node)
-            graph.add_edge(answer_index, answer_entity_index, relation="answer_knowledge")
+            graph.add_edge(answer_index, answer_entity_index, relation=f"answer_{target_node_type}")
 
     return graph
 

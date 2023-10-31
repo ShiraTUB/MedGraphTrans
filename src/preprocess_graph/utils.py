@@ -1,5 +1,4 @@
-
-meta_relation_dict = {
+meta_relations_dict = {
     "protein_protein": ('gene/protein', 'protein_protein', 'gene/protein'),
     "drug_protein": ('drug', "drug_protein", 'gene/protein'),
     "contraindication": ('drug', 'contraindication', 'disease'),
@@ -29,9 +28,21 @@ meta_relation_dict = {
     "pathway_protein": ('pathway', 'pathway_protein', 'gene/protein'),
     "anatomy_anatomy": ('anatomy', 'anatomy_anatomy', 'anatomy'),
     "anatomy_protein_present": ('anatomy', 'anatomy_protein_present', 'gene/protein'),
-    "anatomy_protein_absent": ('anatomy', 'anatomy_protein_absent', 'gene/protein')}
+    "anatomy_protein_absent": ('anatomy', 'anatomy_protein_absent', 'gene/protein'),
+    "question_drug": ("question", "question_drug", "drug"),
+    "question_disease": ("question", "question_disease", 'disease'),
+    "question_phenotype": ("question", "question_phenotype", 'effect/phenotype'),
+    "question_protein": ("question", "question_protein", 'gene/protein'),
+    "question_answer": ("question", "question_answer", "answer"),
+    "answer_question": ("answer", "answer_question", "question"),
+    "answer_drug": ("answer", "answer_drug", "drug"),
+    "answer_disease": ("answer", "answer_disease", 'disease'),
+    "answer_phenotype": ("answer", "answer_phenotype", 'effect/phenotype'),
+    "answer_protein": ("answer", "answer_protein", 'gene/protein')
+}
 
-relation_types = ["indication", "phenotype_protein", "phenotype_phenotype", "disease_phenotype_positive",
-                  "disease_protein", "disease_disease", "drug_effect", "question_answer", "question_drug", "question_disease", "question_phenotype"]
+relation_types = ["indication", "phenotype_protein", "phenotype_phenotype", "disease_phenotype_positive", "disease_protein", "disease_disease", "drug_effect",
+                  "question_drug", "question_disease", "question_phenotype", "question_protein", "question_answer",
+                  "answer_question", "answer_drug", "answer_disease", "answer_phenotype", "answer_protein"]
 
 node_types = ['question', 'drug', 'disease', 'effect/phenotype', 'gene/protein', 'answer']

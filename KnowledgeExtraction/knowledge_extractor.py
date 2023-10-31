@@ -38,7 +38,7 @@ class KnowledgeExtractor:
         self.knowledge_indices = None
         self.set_context_node_embedding(self.model)
         self.set_entities(entities)
-        self.init_data()
+        # self.init_data()
 
     def init_data(self):
         """make sure to make the necessary changes to your domain.
@@ -50,10 +50,10 @@ class KnowledgeExtractor:
         head = np.char.array(self.text)
         head = np.resize(head, (l))
 
-        relation = np.char.array("known")
+        relation = np.char.array("answer_choice")
         relation = np.resize(relation, (l))
         edges = np.char.array([head, tail, relation]).T
-        self.data['msg_knowledge_edges'] = edges
+        self.data['question_knowledge_edges'] = edges
         self.data['knowledge_nodes'] = tail
 
     def get_data(self, key):

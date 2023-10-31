@@ -1,3 +1,4 @@
+import networkx as nx
 import numpy as np
 import openai
 
@@ -7,7 +8,7 @@ from transformers import pipeline
 openai.api_key = OPENAI_API_KEY
 
 
-def medical_ner(query: str, knowledge_graph_embeddings: np.ndarray, node_embedding_to_name_dict: dict) -> (list, list):
+def medical_ner(query: str, knowledge_graph_embeddings: np.ndarray, node_indices_list: list, prime_kg: nx.Graph) -> (list, list):
     tokens = classify_tokens(query)
     clean_tokens_list = clean_tokens(tokens)
     entities_embeddings_list = embed_tokens(clean_tokens_list)
@@ -15,7 +16,7 @@ def medical_ner(query: str, knowledge_graph_embeddings: np.ndarray, node_embeddi
     if len(entities_embeddings_list) == 0:
         return []
 
-    closest_entities, closest_entities_indices = find_closest_nodes(entities_embeddings_list, knowledge_graph_embeddings, node_embedding_to_name_dict)
+    closest_entities, closest_entities_indices = find_closest_nodes(entities_embeddings_list, knowledge_graph_embeddings, node_indices_list, prime_kg)
 
     return closest_entities, closest_entities_indices
 
@@ -68,31 +69,34 @@ def embed_tokens(tokens_list: list) -> list:
     return tokens_embeddings
 
 
-def find_closest_nodes(entities_embeddings_list: [np.ndarray], graph_node_embeddings: np.ndarray, node_embedding_to_name_dict: dict) -> (list, list):
+def find_closest_nodes(entities_embeddings_list: [np.ndarray], graph_node_embeddings: np.ndarray, node_indices_list: list, prime_kg: nx.Graph) -> (list, list):
     """
     param entities_embeddings_list: a list of embedded entities (extracted from the query)
     param graph_node_embeddings: a matrix containing all node embeddings
-    param node_embedding_to_name_dict: a dictionary mapping node embeddings to the corresponding node's name for quick lookup
+    param node_indices_list: a list of primeKG's nodes' indices for quick lookup
+    param prime_kg: PrimeKG as a nx.Graph
     return: a list of all closest nodes/ entities
     """
 
-    closest_nodes = []
+    closest_nodes_names = []
+    closest_nodes_indices = []
     # index = faiss.IndexFlatL2(graph_node_embeddings.shape[0])
     # index.add(np.reshape(graph_node_embeddings.T, (graph_node_embeddings.T.shape[0], -1)))
     #
     # _, I = index.search(np.concatenate(entities_embeddings_list), 1)
 
-    graph_node_embeddings = graph_node_embeddings.T
-
     # Calculate the pairwise L2 norms
     differences = np.concatenate(entities_embeddings_list)[:, np.newaxis, :] - graph_node_embeddings.numpy()[np.newaxis, :, :]
 
     l2_norms = np.sqrt(np.sum(differences ** 2, axis=-1))
-    closest_indices = np.argmin(l2_norms, axis=1)
+    closest_embeddings_indices = np.argmin(l2_norms, axis=1)
 
-    for i in closest_indices:
-        closest_node_name = node_embedding_to_name_dict.get(tuple(graph_node_embeddings[i].flatten().numpy()))
+    for i in closest_embeddings_indices:
+        closest_node_index = node_indices_list[i]
+        closest_nodes_indices.append(closest_node_index)
+
+        closest_node_name = prime_kg.nodes[closest_node_index]['name']
         closest_node_name = closest_node_name.replace(' ', '_')
-        closest_nodes.append(closest_node_name)
+        closest_nodes_names.append(closest_node_name)
 
-    return closest_nodes, list(closest_indices)
+    return closest_nodes_names, closest_nodes_indices
