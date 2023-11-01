@@ -24,7 +24,7 @@ parser.add_argument('--plot', action='store_true', help='Whether to plot the los
 parser.add_argument('--cuda', type=int, default=0, help='Avaiable GPU ID')
 parser.add_argument('--n_epoch', type=int, default=100, help='Number of epochs to run')
 parser.add_argument('--train_dataset_path', type=str, default='datasets/graph_dataset/train', help='Path of the raw train dataset')
-parser.add_argument('--val_dataset_path', type=str, default='datasets/graph_dataset/val', help='Path of the raw val dataset')
+parser.add_argument('--val_dataset_path', type=str, default='datasets/graph_dataset/validation', help='Path of the raw validation dataset')
 parser.add_argument('--test_dataset_path', type=str, default='datasets/graph_dataset/test', help='Path of the raw test dataset')
 parser.add_argument('--d_model', type=int, default=768, help='TODO')
 parser.add_argument('--d_ff', type=int, default=1024, help='TODO')
@@ -38,7 +38,7 @@ args = parser.parse_args()
 
 def train():
     train_data = MedicalKnowledgeGraphDataset(root=os.path.join(ROOT_DIR, args.train_dataset_path), purpose='raw')
-    val_data = MedicalKnowledgeGraphDataset(root=os.path.join(ROOT_DIR, args.train_dataset_path), purpose='val')
+    val_data = MedicalKnowledgeGraphDataset(root=os.path.join(ROOT_DIR, args.train_dataset_path), purpose='validation')
 
     vocab = weights.shape[0]
 

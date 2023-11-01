@@ -14,7 +14,7 @@ def medical_ner(query: str, knowledge_graph_embeddings: np.ndarray, node_indices
     entities_embeddings_list = embed_tokens(clean_tokens_list)
 
     if len(entities_embeddings_list) == 0:
-        return []
+        return [], []
 
     closest_entities, closest_entities_indices = find_closest_nodes(entities_embeddings_list, knowledge_graph_embeddings, node_indices_list, prime_kg)
 

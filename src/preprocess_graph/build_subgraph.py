@@ -60,9 +60,6 @@ def extract_knowledge_from_kg(question: str, trie: Trie, question_entities_list=
 
     extracted_edges, extracted_edge_indices = knowledge_extractor.extract_subgraph_from_query(n_hops=2, k=10)
 
-    if extracted_edges is None:
-        return None, None
-
     return extracted_edges, extracted_edge_indices
 
 
@@ -76,24 +73,40 @@ def convert_nx_to_hetero_data(graph: nx.Graph, node_types: list, relation_types:
     """
     data = HeteroData()
 
+    node_index_mapping = {}
     for node_type in node_types:
 
         node_type_embeddings = [np.squeeze(data['embedding']) for node, data in graph.nodes(data=True) if data['type'] == node_type]
 
         if len(node_type_embeddings) > 0:
-            # TODO: find the right masking strategy
             data[node_type].x = torch.stack(node_type_embeddings, dim=0).type("torch.FloatTensor")
+
+            node_type_indices = [data['index'] for node, data in graph.nodes(data=True) if data['type'] == node_type]
+            node_type_mapping = {node_index: node_type_index for node_type_index, node_index in enumerate(node_type_indices)}
+            node_index_mapping[node_type] = node_type_mapping
 
     for relation_type in relation_types:
         meta_rel_type = meta_relation_dict[relation_type]
+        source_type = meta_rel_type[0]
+        target_type = meta_rel_type[2]
 
-        source_target_indices = np.asarray([(source, target) for (source, target, data) in graph.edges(data=True) if data['relation'] == relation_type])
+        # source_target_indices = np.asarray([(source, target) for (source, target, data) in graph.edges(data=True) if data['relation'] == relation_type])
+        source_target_indices = []
+        for (source, target, edge_data) in graph.edges(data=True):
+            if edge_data['relation'] == relation_type:
+                try:
+                    edge_indices = (node_index_mapping[source_type][source], node_index_mapping[target_type][target])
+                except KeyError as e:
+                    edge_indices = (node_index_mapping[target_type][source], node_index_mapping[source_type][target])
+
+                source_target_indices.append(edge_indices)
+
+        source_target_indices_array = np.asarray(source_target_indices)
 
         if len(source_target_indices) > 0:
-            edge_index_feats = [torch.tensor(source_target_indices[:, 0]), torch.tensor(source_target_indices[:, 1])]
+            edge_index_feats = [torch.tensor(source_target_indices_array[:, 0]), torch.tensor(source_target_indices_array[:, 1])]
 
-            data[meta_rel_type[0], meta_rel_type[1], meta_rel_type[2]].edge_index = torch.stack(
-                edge_index_feats, dim=0)
+            data[meta_rel_type[0], meta_rel_type[1], meta_rel_type[2]].edge_index = torch.stack(edge_index_feats, dim=0)
 
     return data
 
@@ -190,7 +203,7 @@ def expand_graph_with_knowledge(graph: nx.Graph, extracted_edge_indices: [list],
 
 
 def process_raw_graph_data(graph_data):
-    graph = Graph()
+    graph = nx.Graph()
 
     question_knowledge_edges = graph_data['question_knowledge_edges']
     answer_knowledge_edges = graph_data['answer_knowledge_edges']
