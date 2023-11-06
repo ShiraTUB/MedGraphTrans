@@ -6,12 +6,11 @@ import torch
 import networkx as nx
 import pandas as pd
 from datasets import load_dataset
-from torch_geometric.loader import DataLoader
 
 from config import ROOT_DIR
 from src.preprocess_graph.build_subgraph import extract_knowledge_from_kg, build_trie_from_kg, initiate_question_graph, expand_graph_with_knowledge, convert_nx_to_hetero_data
 from src.preprocess_graph.medical_ner import medical_ner
-from src.preprocess_graph.utils import node_types, relation_types, meta_relations_dict
+from src.utils import node_types, relation_types, meta_relations_dict
 
 parser = argparse.ArgumentParser(description='Preprocess KG on PrimeKG + Medmcqa')
 

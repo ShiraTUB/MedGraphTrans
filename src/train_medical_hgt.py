@@ -12,9 +12,9 @@ from torch_geometric.loader import DataLoader
 from src.medical_hgt.model import MedicalQAModel
 from src.medical_hgt.encoder import MedicalEncoder
 from src.medical_hgt.decoder import Decoder, PositionalEncoding, Generator
-from src.preprocess_graph.medical_graph_dataset import MedicalKnowledgeGraphDataset
+from src.preprocess_graph.dataset_builder import build_dataset
+from src.utils import node_types, meta_relations_dict
 from config import ROOT_DIR
-
 
 parser = argparse.ArgumentParser(description='Training HGT on PrimeKG + Medmcqa')
 
@@ -26,7 +26,7 @@ parser.add_argument('--n_epoch', type=int, default=100, help='Number of epochs t
 parser.add_argument('--train_dataset_path', type=str, default='datasets/graph_dataset/train', help='Path of the raw train dataset')
 parser.add_argument('--val_dataset_path', type=str, default='datasets/graph_dataset/validation', help='Path of the raw validation dataset')
 parser.add_argument('--test_dataset_path', type=str, default='datasets/graph_dataset/test', help='Path of the raw test dataset')
-parser.add_argument('--d_model', type=int, default=768, help='TODO')
+parser.add_argument('--d_model', type=int, default=1536, help='The dimensions of the node embeddings')
 parser.add_argument('--d_ff', type=int, default=1024, help='TODO')
 parser.add_argument('--n_heads', type=int, default=4, help='TODO')
 parser.add_argument('--dropout', type=float, default=0.1, help='TODO')
@@ -37,12 +37,14 @@ args = parser.parse_args()
 
 
 def train():
-    train_data = MedicalKnowledgeGraphDataset(root=os.path.join(ROOT_DIR, args.train_dataset_path), purpose='raw')
-    val_data = MedicalKnowledgeGraphDataset(root=os.path.join(ROOT_DIR, args.train_dataset_path), purpose='validation')
+    train_data = build_dataset(root_dir=os.path.join(ROOT_DIR, args.train_dataset_path))
+    val_data = build_dataset(root_dir=os.path.join(ROOT_DIR, args.val_dataset_path))
 
-    vocab = weights.shape[0]
+    metadata = (node_types, list(meta_relations_dict.values()))
 
-    encoder = MedicalEncoder(args.d_model, n_types, metadata)
+    # vocab = weights.shape[0]
+
+    encoder = MedicalEncoder(args.d_model, node_types, metadata)
 
     embs_word = torch.nn.Embedding.from_pretrained(weights, padding_idx=0, freeze=False)
 
