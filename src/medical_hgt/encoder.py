@@ -2,51 +2,34 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from transformers import AutoModel, AutoTokenizer
 from torch_geometric.nn import HGTConv, Linear
 
 
 class Encoder(nn.Module):
-    def __init__(self, model_name_or_path='sentence-transformers/all-MiniLM-L6-v2'):
+    def __init__(self):
         super().__init__()
-        # Loads transformers model
-        self.model = AutoModel.from_pretrained(model_name_or_path)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-        self.encoded_input = None
 
-    def forward(self, input, normalize=True, tokenize=False):
-        if tokenize:
-            self.tokenize(text_input=input)
-            model_output = self.model(**self.encoded_input)
+    def forward(self, embedded_input, apply_normalization=True):
+
+        if embedded_input.get_device() >= 0:
+            attention_mask = (embedded_input > 0).detach().clone().type(torch.LongTensor).to(embedded_input.get_device())
         else:
-            self.encoded_input = input
-            model_output = self.model(input)
+            attention_mask = (embedded_input > 0).detach().clone().type(torch.LongTensor)
 
-        # if input.get_device() >= 0:
-        #     attention_mask = (input > 0).detach().clone().type(torch.LongTensor).to(input.get_device())
-        # else:
-        #     attention_mask = (input > 0).detach().clone().type(torch.LongTensor)
+        sentence_embeddings = self.mean_pooling(embedded_input, attention_mask)
 
-        attention_mask = (input > 0).detach().clone().type(torch.LongTensor)
-
-        sentence_embeddings = self.mean_pooling(model_output, attention_mask)
-
-        if normalize:
+        if apply_normalization:
             sentence_embeddings = self.normalize(sentence_embeddings)
 
         return sentence_embeddings
 
-    def mean_pooling(self, model_output, attention_mask):
-        token_embeddings = model_output[0]
-        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-        return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+    def mean_pooling(self, embedded_input, attention_mask):
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(embedded_input.size()).float()
+        return torch.sum(embedded_input * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
-    def normalize(self, embeddings):
-        embeddings = F.normalize(embeddings, p=2, dim=1)
-        return embeddings
-
-    def tokenize(self, text_input, padding=True, truncation=True, return_tensors='pt'):
-        self.encoded_input = self.tokenizer(text_input, padding=True, truncation=True, return_tensors='pt')
+    def normalize(self, sentence_embeddings):
+        output = F.normalize(sentence_embeddings, p=2, dim=1)
+        return output
 
 
 class HGT(torch.nn.Module):
@@ -75,7 +58,8 @@ class HGT(torch.nn.Module):
         for conv in self.convs:
             x_dict = conv(x_dict, edge_index_dict)
 
-        return x_dict['message']
+        # TODO: is answer the right thing to return?
+        return x_dict['answer']
 
 
 class MedicalEncoder(torch.nn.Module):
