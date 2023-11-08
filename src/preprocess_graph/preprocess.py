@@ -10,7 +10,6 @@ from datasets import load_dataset
 from config import ROOT_DIR
 from src.preprocess_graph.build_subgraph import extract_knowledge_from_kg, build_trie_from_kg, initiate_question_graph, expand_graph_with_knowledge, convert_nx_to_hetero_data
 from src.preprocess_graph.medical_ner import medical_ner
-from src.utils import node_types, relation_types, meta_relations_dict
 
 parser = argparse.ArgumentParser(description='Preprocess KG on PrimeKG + Medmcqa')
 
@@ -19,7 +18,7 @@ parser.add_argument('--prime_kg_embeddings_dataset', type=str, default='datasets
 parser.add_argument('--prime_kg_indices', type=str, default='datasets/primeKG_indices_list.pickle', help='a list of all primeKG unique indices')
 parser.add_argument('--trie_path', type=str, default='datasets/trie.pickle', help='knowledge_graph_trie path, set to None if no trie is available')
 parser.add_argument('--qa_dataset_name', type=str, default='medmcqa', help='Name of dataset to download using datasets')
-parser.add_argument('--dataset_target_path', type=str, default='datasets/graph_dataset', help='Path of where to save the processed dataset')
+parser.add_argument('--dataset_target_path', type=str, default='datasets/raw_graph_dataset', help='Path of where to save the processed dataset')
 parser.add_argument('--target_dataset', type=str, default='train', help='Use either train/validation/test dataset')
 
 args = parser.parse_args()
@@ -41,7 +40,7 @@ if __name__ == "__main__":
         else:
             trie = pickle.load(open(os.path.join(ROOT_DIR, args.trie_path), 'rb'))
 
-        medmcqa_df = medmcqa_df[:200]
+        medmcqa_df = medmcqa_df[:500]
 
         # iterate over medmcqa_df and add the questions to the graph
         for i, row in medmcqa_df.iterrows():
@@ -50,6 +49,7 @@ if __name__ == "__main__":
             original_question_series = row.drop(['id', 'cop', 'exp'])
             question = row['question']
             answer_choices = [row['opa'], row['opb'], row['opc'], row['opd']]
+            correct_answer = row['cop']
 
             question_entities_list, question_entities_indices_list = medical_ner(question, node_embeddings, node_indices_list, prime_kg)
 
@@ -64,7 +64,7 @@ if __name__ == "__main__":
             if len(question_entities_list + answer_entities_list) == 0:
                 continue
 
-            graph = initiate_question_graph(graph, question, answer_choices, question_entities_indices_list, answer_entities_dict, prime_kg)
+            graph = initiate_question_graph(graph, question, answer_choices, correct_answer, question_entities_indices_list, answer_entities_dict, prime_kg)
 
             extracted_edges, extracted_edge_indices = extract_knowledge_from_kg(question, trie, question_entities_list, answer_entities_list)
 
@@ -72,8 +72,16 @@ if __name__ == "__main__":
 
                 graph = expand_graph_with_knowledge(graph, extracted_edge_indices, prime_kg)
 
-            hetero_data = convert_nx_to_hetero_data(graph, node_types, relation_types, meta_relations_dict)
+            pickle.dump(graph, open(os.path.join(ROOT_DIR, args.dataset_target_path, args.target_dataset, f'graph_{i}.pickle'), 'wb'))
+            print('processed {} out of {} rows'.format(i, len(medmcqa_df)))
+            continue
 
-            pickle.dump(hetero_data, open(os.path.join(ROOT_DIR, args.dataset_target_path, args.target_dataset, f'part_{i}.pickle'), 'wb'))
+            print('number of answer nodes in nx_graph: ', len([node for node, data in graph.nodes(data=True) if data['type'] == 'answer']))
+            hetero_data = convert_nx_to_hetero_data(graph)
+
+            print('number of answer nodes in hetero data:', hetero_data['answer'].num_nodes)
+            print('\n')
+
+            # pickle.dump(hetero_data, open(os.path.join(ROOT_DIR, args.dataset_target_path, args.target_dataset, f'part_{i}.pickle'), 'wb'))
 
             print('processed {} out of {} rows'.format(i, len(medmcqa_df)))

@@ -5,11 +5,13 @@ import os
 import pickle
 import openai
 import random
+import torch_geometric.transforms as T
 
 from KnowledgeExtraction.trie_structure import Trie
 from KnowledgeExtraction.knowledge_extractor import KnowledgeExtractor
 from torch_geometric.data import HeteroData
 
+from src.utils import meta_relations_dict
 from config import OPENAI_API_KEY
 
 openai.api_key = OPENAI_API_KEY
@@ -63,53 +65,91 @@ def extract_knowledge_from_kg(question: str, trie: Trie, question_entities_list=
     return extracted_edges, extracted_edge_indices
 
 
-def convert_nx_to_hetero_data(graph: nx.Graph, node_types: list, relation_types: list, meta_relation_dict: dict) -> HeteroData:
+def convert_nx_to_hetero_data(graph: nx.Graph) -> HeteroData:
     """
     :param graph: nx graph to be transformed into hetero data
-    :param node_types: a list of all possible node types
-    :param relation_types: a list of all possible relation types
-    :param meta_relation_dict: a dictionary that maps each relation type to a meta relation in the form (source type, relation type, target type)
     :return: the hetero data crated from the graph
     """
     data = HeteroData()
 
-    node_index_mapping = {}
-    for node_type in node_types:
+    node_types_dict = {}
+    edge_types_dict = {}
 
-        node_type_embeddings = [np.squeeze(data['embedding']) for node, data in graph.nodes(data=True) if data['type'] == node_type]
+    # Iterate over all edges:
+    for index, (s, t, edge_attr) in enumerate(graph.edges(data=True)):
 
-        if len(node_type_embeddings) > 0:
-            data[node_type].x = torch.stack(node_type_embeddings, dim=0).type("torch.FloatTensor")
+        relation = meta_relations_dict[edge_attr['relation']]
 
-            node_type_indices = [data['index'] for node, data in graph.nodes(data=True) if data['type'] == node_type]
-            node_type_mapping = {node_index: node_type_index for node_type_index, node_index in enumerate(node_type_indices)}
-            node_index_mapping[node_type] = node_type_mapping
+        s_node = graph.nodes[s]
+        s_node_type = s_node['type']
+        s_node_embedding = s_node['embedding']
+        if s_node_embedding.dim() == 2:
+            s_node_embedding = torch.squeeze(s_node_embedding, dim=1)
 
-    for relation_type in relation_types:
-        meta_rel_type = meta_relation_dict[relation_type]
-        source_type = meta_rel_type[0]
-        target_type = meta_rel_type[2]
+        t_node = graph.nodes[t]
+        t_node_type = t_node['type']
+        t_node_embedding = t_node['embedding']
+        if t_node_embedding.dim() == 2:
+            t_node_embedding = torch.squeeze(t_node_embedding, dim=1)
 
-        # source_target_indices = np.asarray([(source, target) for (source, target, data) in graph.edges(data=True) if data['relation'] == relation_type])
-        source_target_indices = []
-        for (source, target, edge_data) in graph.edges(data=True):
-            if edge_data['relation'] == relation_type:
-                try:
-                    edge_indices = (node_index_mapping[source_type][source], node_index_mapping[target_type][target])
-                except KeyError as e:
-                    edge_indices = (node_index_mapping[target_type][source], node_index_mapping[source_type][target])
+        if s_node_type != relation[0]:
+            s_node_type, t_node_type = t_node_type, s_node_type
+            s_node_embedding, t_node_embedding = t_node_embedding, s_node_embedding
 
-                source_target_indices.append(edge_indices)
+        if s_node_type not in node_types_dict:
+            node_types_dict[s_node_type] = []
+            s_node_index = len(node_types_dict[s_node_type])
+            node_types_dict[s_node_type].append(s_node_embedding)
 
-        source_target_indices_array = np.asarray(source_target_indices)
+        elif not contains_tensor(node_types_dict[s_node_type], s_node_embedding):
+            s_node_index = len(node_types_dict[s_node_type])
+            node_types_dict[s_node_type].append(s_node_embedding)
 
-        if len(source_target_indices) > 0:
-            edge_index_feats = [torch.tensor(source_target_indices_array[:, 0]), torch.tensor(source_target_indices_array[:, 1])]
+        else:
+            s_node_index = next((index for index, tensor in enumerate(node_types_dict[s_node_type]) if torch.equal(tensor, s_node_embedding)), None)
 
-            data[meta_rel_type[0], meta_rel_type[1], meta_rel_type[2]].edge_index = torch.stack(edge_index_feats, dim=0)
+        if t_node_type not in node_types_dict:
+            node_types_dict[t_node_type] = []
+            t_node_index = len(node_types_dict[t_node_type])
+            node_types_dict[t_node_type].append(t_node_embedding)
+
+        elif not contains_tensor(node_types_dict[t_node_type], t_node_embedding):
+            t_node_index = len(node_types_dict[t_node_type])
+            node_types_dict[t_node_type].append(t_node_embedding)
+
+        else:
+            t_node_index = next((index for index, tensor in enumerate(node_types_dict[t_node_type]) if torch.equal(tensor, t_node_embedding)), None)
+
+        if relation not in edge_types_dict:
+            edge_types_dict[relation] = []
+            edge_types_dict[relation].append([s_node_index, t_node_index])
+
+        elif [s_node_index, t_node_index] not in edge_types_dict[relation]:
+            edge_types_dict[relation].append([s_node_index, t_node_index])
+
+    # Iterate over nodes with no neighbors:
+    nodes_with_no_neighbors = [graph.nodes[node] for node in graph.nodes() if len(list(graph.neighbors(node))) == 0]
+    for node in nodes_with_no_neighbors:
+        node_type = node['type']
+        node_embedding = node['embedding']
+        if node_embedding.dim() == 2:
+            node_embedding = torch.squeeze(node_embedding, dim=1)
+        if node_type not in node_types_dict:
+            node_types_dict[node_type] = []
+            node_types_dict[node_type].append(node_embedding)
+
+        elif not contains_tensor(node_types_dict[node_type], node_embedding):
+            node_types_dict[node_type].append(node_embedding)
+
+    for n_type in node_types_dict.keys():
+        data[n_type].x = torch.stack(node_types_dict[n_type], dim=0).type("torch.FloatTensor")
+
+    for e_type in edge_types_dict.keys():
+        data[e_type].edge_index = torch.transpose(torch.tensor(edge_types_dict[e_type]), 0, 1)
+
+    data = T.ToUndirected()(data)
 
     return data
-
 
 def initiate_question_graph_dict(question: str, answer_choices: [str], question_entities, answer_entities_dict) -> dict:
     graph_data = {}
@@ -161,7 +201,7 @@ def initiate_question_graph_dict(question: str, answer_choices: [str], question_
     return graph_data
 
 
-def initiate_question_graph(graph: nx.Graph, question: str, answer_choices: [str], question_entities_indices_list: list, answer_entities_dict: dict, prime_kg: nx.Graph) -> nx.Graph:
+def initiate_question_graph(graph: nx.Graph, question: str, answer_choices: [str], correct_answer: int, question_entities_indices_list: list, answer_entities_dict: dict, prime_kg: nx.Graph) -> nx.Graph:
     question_embeddings = torch.tensor(openai.Embedding.create(input=[question], model="text-embedding-ada-002")['data'][0]['embedding'])
     question_index = random.randint(10 ** 9, (10 ** 10) - 1)
 
@@ -177,8 +217,10 @@ def initiate_question_graph(graph: nx.Graph, question: str, answer_choices: [str
         answer_embeddings = torch.tensor(openai.Embedding.create(input=[answer_choice], model="text-embedding-ada-002")['data'][0]['embedding'])
 
         answer_index = random.randint(10 ** 9, (10 ** 10) - 1)
-        graph.add_node(answer_index, embedding=answer_embeddings, type="answer", index=answer_index, name=f'{answer_choice}_{choice_index}')
-        graph.add_edge(question_index, answer_index, relation="question_answer")
+        graph.add_node(answer_index, embedding=answer_embeddings, type="answer", index=answer_index, name=answer_choice, answer_choice_index=choice_index)
+
+        if choice_index == correct_answer:
+            graph.add_edge(question_index, answer_index, relation="question_answer")
 
         for answer_entity_index in answer_entities_dict[answer_choice]:
             target_node = prime_kg.nodes[answer_entity_index]
@@ -336,3 +378,10 @@ def initialize_edges_tensors(question_knowledge_edges, answer_knowledge_edges,
 
 def save_graph(graph, processed_dir, filename, index):
     pickle.dump(graph, open(os.path.join(processed_dir, f'{filename}_{index}.p'), "wb"))
+
+
+def contains_tensor(tensor_list, tensor_to_find):
+    for tensor in tensor_list:
+        if torch.equal(tensor, tensor_to_find):
+            return True
+    return False
