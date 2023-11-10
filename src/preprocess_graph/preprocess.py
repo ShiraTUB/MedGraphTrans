@@ -28,7 +28,7 @@ if __name__ == "__main__":
     node_embeddings = torch.load(os.path.join(ROOT_DIR, args.prime_kg_embeddings_dataset))
     node_indices_list = pickle.load(open(os.path.join(ROOT_DIR, args.prime_kg_indices), 'rb'))
 
-    for purpose in ['train', 'validation', 'test']:
+    for purpose in ['test']:
 
         args.target_dataset = purpose
 
@@ -40,7 +40,7 @@ if __name__ == "__main__":
         else:
             trie = pickle.load(open(os.path.join(ROOT_DIR, args.trie_path), 'rb'))
 
-        medmcqa_df = medmcqa_df[:500]
+        medmcqa_df = medmcqa_df[8:500]
 
         # iterate over medmcqa_df and add the questions to the graph
         for i, row in medmcqa_df.iterrows():

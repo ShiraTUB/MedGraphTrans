@@ -72,7 +72,8 @@ def convert_nx_to_hetero_data(graph: nx.Graph) -> HeteroData:
     """
     data = HeteroData()
 
-    node_types_dict = {}
+    node_types_embeddings_dict = {}
+    node_types_uids_dict = {}
     edge_types_dict = {}
 
     # Iterate over all edges:
@@ -83,42 +84,59 @@ def convert_nx_to_hetero_data(graph: nx.Graph) -> HeteroData:
         s_node = graph.nodes[s]
         s_node_type = s_node['type']
         s_node_embedding = s_node['embedding']
+        s_uid = s_node['index']
         if s_node_embedding.dim() == 2:
             s_node_embedding = torch.squeeze(s_node_embedding, dim=1)
 
         t_node = graph.nodes[t]
         t_node_type = t_node['type']
         t_node_embedding = t_node['embedding']
+        t_uid = t_node['index']
         if t_node_embedding.dim() == 2:
             t_node_embedding = torch.squeeze(t_node_embedding, dim=1)
 
         if s_node_type != relation[0]:
             s_node_type, t_node_type = t_node_type, s_node_type
             s_node_embedding, t_node_embedding = t_node_embedding, s_node_embedding
+            s_uid, t_uid = t_uid, s_uid
 
-        if s_node_type not in node_types_dict:
-            node_types_dict[s_node_type] = []
-            s_node_index = len(node_types_dict[s_node_type])
-            node_types_dict[s_node_type].append(s_node_embedding)
+        if s_node_type not in node_types_embeddings_dict:
+            node_types_embeddings_dict[s_node_type] = []
+            node_types_uids_dict[s_node_type] = []
+            s_node_index = len(node_types_embeddings_dict[s_node_type])
+            node_types_embeddings_dict[s_node_type].append(s_node_embedding)
+            node_types_uids_dict[s_node_type].append(s_uid)
 
-        elif not contains_tensor(node_types_dict[s_node_type], s_node_embedding):
-            s_node_index = len(node_types_dict[s_node_type])
-            node_types_dict[s_node_type].append(s_node_embedding)
-
-        else:
-            s_node_index = next((index for index, tensor in enumerate(node_types_dict[s_node_type]) if torch.equal(tensor, s_node_embedding)), None)
-
-        if t_node_type not in node_types_dict:
-            node_types_dict[t_node_type] = []
-            t_node_index = len(node_types_dict[t_node_type])
-            node_types_dict[t_node_type].append(t_node_embedding)
-
-        elif not contains_tensor(node_types_dict[t_node_type], t_node_embedding):
-            t_node_index = len(node_types_dict[t_node_type])
-            node_types_dict[t_node_type].append(t_node_embedding)
+        # elif not contains_tensor(node_types_embeddings_dict[s_node_type], s_node_embedding):
+        #     s_node_index = len(node_types_embeddings_dict[s_node_type])
+        #     node_types_embeddings_dict[s_node_type].append(s_node_embedding)
+        elif s_uid not in node_types_uids_dict[s_node_type]:
+            s_node_index = len(node_types_embeddings_dict[s_node_type])
+            node_types_embeddings_dict[s_node_type].append(s_node_embedding)
+            node_types_uids_dict[s_node_type].append(s_uid)
 
         else:
-            t_node_index = next((index for index, tensor in enumerate(node_types_dict[t_node_type]) if torch.equal(tensor, t_node_embedding)), None)
+            # s_node_index = next((index for index, tensor in enumerate(node_types_embeddings_dict[s_node_type]) if torch.equal(tensor, s_node_embedding)), None)
+            s_node_index = node_types_uids_dict[s_node_type].index(s_uid)
+
+        if t_node_type not in node_types_embeddings_dict:
+            node_types_embeddings_dict[t_node_type] = []
+            node_types_uids_dict[t_node_type] = []
+            t_node_index = len(node_types_embeddings_dict[t_node_type])
+            node_types_embeddings_dict[t_node_type].append(t_node_embedding)
+            node_types_uids_dict[t_node_type].append(t_uid)
+
+        # elif not contains_tensor(node_types_embeddings_dict[t_node_type], t_node_embedding):
+        #     t_node_index = len(node_types_embeddings_dict[t_node_type])
+        #     node_types_embeddings_dict[t_node_type].append(t_node_embedding)
+        elif t_uid not in node_types_uids_dict[t_node_type]:
+            t_node_index = len(node_types_embeddings_dict[t_node_type])
+            node_types_embeddings_dict[t_node_type].append(t_node_embedding)
+            node_types_uids_dict[t_node_type].append(t_uid)
+
+        else:
+            # t_node_index = next((index for index, tensor in enumerate(node_types_embeddings_dict[t_node_type]) if torch.equal(tensor, t_node_embedding)), None)
+            t_node_index = node_types_uids_dict[t_node_type].index(t_uid)
 
         if relation not in edge_types_dict:
             edge_types_dict[relation] = []
@@ -132,17 +150,23 @@ def convert_nx_to_hetero_data(graph: nx.Graph) -> HeteroData:
     for node in nodes_with_no_neighbors:
         node_type = node['type']
         node_embedding = node['embedding']
+        node_uid = node['index']
         if node_embedding.dim() == 2:
             node_embedding = torch.squeeze(node_embedding, dim=1)
-        if node_type not in node_types_dict:
-            node_types_dict[node_type] = []
-            node_types_dict[node_type].append(node_embedding)
+        if node_type not in node_types_embeddings_dict:
+            node_types_embeddings_dict[node_type] = []
+            node_types_uids_dict[node_type] = []
+            node_types_embeddings_dict[node_type].append(node_embedding)
+            node_types_uids_dict[node_type].append(node_uid)
+            node_types_uids_dict[node_type].append(node_uid)
 
-        elif not contains_tensor(node_types_dict[node_type], node_embedding):
-            node_types_dict[node_type].append(node_embedding)
+        # elif not contains_tensor(node_types_embeddings_dict[node_type], node_embedding):
+        #     node_types_embeddings_dict[node_type].append(node_embedding)
+        elif node_uid not in node_types_uids_dict[node_type]:
+            node_types_embeddings_dict[node_type].append(node_embedding)
 
-    for n_type in node_types_dict.keys():
-        data[n_type].x = torch.stack(node_types_dict[n_type], dim=0).type("torch.FloatTensor")
+    for n_type in node_types_embeddings_dict.keys():
+        data[n_type].x = torch.stack(node_types_embeddings_dict[n_type], dim=0).type("torch.FloatTensor")
 
     for e_type in edge_types_dict.keys():
         data[e_type].edge_index = torch.transpose(torch.tensor(edge_types_dict[e_type]), 0, 1)
@@ -150,6 +174,7 @@ def convert_nx_to_hetero_data(graph: nx.Graph) -> HeteroData:
     data = T.ToUndirected()(data)
 
     return data
+
 
 def initiate_question_graph_dict(question: str, answer_choices: [str], question_entities, answer_entities_dict) -> dict:
     graph_data = {}
@@ -382,6 +407,6 @@ def save_graph(graph, processed_dir, filename, index):
 
 def contains_tensor(tensor_list, tensor_to_find):
     for tensor in tensor_list:
-        if torch.equal(tensor, tensor_to_find):
+        if torch.allclose(tensor, tensor_to_find):
             return True
     return False
