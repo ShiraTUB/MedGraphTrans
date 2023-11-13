@@ -199,4 +199,4 @@ for epoch in range(1, 101):
     print(f"Validation AUC: {val_auc:.4f}")
     print()
 
-print('end')
+print('test')
