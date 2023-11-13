@@ -151,68 +151,38 @@ class GraphBuilder:
             today_str = today.strftime("%Y-%m-%d")
             embeddings_df.to_csv(f"../datasets/embeddings_{today_str}.csv", index=False)
 
-    def tvt_split(self, node_cnt: int, train_test_ratio=0.2, train_val_ratio=0.2) -> tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor]:
-        # taken from AdaStruct/Crawlers/scibert_hgt
-
-        ordered_node_list = np.arange(node_cnt)
-        random_node_list = np.random.permutation(ordered_node_list)
-
-        test_len = int(node_cnt * train_test_ratio)
-        val_len = int((node_cnt - test_len) * train_val_ratio)
-
-        test_idx = random_node_list[:test_len]
-        val_idx = random_node_list[test_len: test_len + val_len]
-
-        train_mask = torch.zeros(node_cnt, dtype=torch.long)
-        # .to(device)
-        val_mask = torch.zeros(node_cnt, dtype=torch.long)
-        # .to(device)
-        test_mask = torch.zeros(node_cnt, dtype=torch.long)
-        # .to(device)
-
-        for i in range(node_cnt):
-            if i in test_idx:
-                test_mask[i] = 1
-            elif i in val_idx:
-                val_mask[i] = 1
-            else:
-                train_mask[i] = 1
-
-        return train_mask, val_mask, test_mask
-
-    def convert_nx_to_hetero(self):
-        for node_type in self.node_types:
-            embeddings = []
-            node_type_indices = self.type_index_dict[node_type]
-
-            for node_index in node_type_indices:
-                embeddings.append(self.nx_graph.nodes[node_index]['embedding'])
-
-            if len(embeddings) > 0:
-                self.hetero_data[node_type].x = torch.stack(embeddings, dim=0).type("torch.FloatTensor")
-
-                # TODO: find the right masking strategy
-                if node_type == 'disease':
-                    train_mask, val_mask, test_mask = self.tvt_split(len(embeddings))
-                    self.hetero_data[node_type].update(
-                        dict(train_mask=train_mask, val_mask=val_mask, test_mask=test_mask))
-
-        for edge_type in self.edge_types:
-            meta_rel_type = meta_relations_dict_complete[edge_type]
-
-            source_indices = list([s for s, _ in self.type_index_dict[edge_type]])
-            target_indices = list([t for _, t in self.type_index_dict[edge_type]])
-
-            edge_index_feats = [torch.tensor(source_indices), torch.tensor(target_indices)]
-
-            if len(edge_index_feats[0]) != len(edge_index_feats[1]):
-                continue
-            elif len(edge_index_feats[0]) == 0:
-                continue
-
-            self.hetero_data[meta_rel_type[0], meta_rel_type[1], meta_rel_type[2]].edge_index = torch.stack(
-                edge_index_feats, dim=0)
+    # def convert_nx_to_hetero(self):
+    #     for node_type in self.node_types:
+    #         embeddings = []
+    #         node_type_indices = self.type_index_dict[node_type]
+    #
+    #         for node_index in node_type_indices:
+    #             embeddings.append(self.nx_graph.nodes[node_index]['embedding'])
+    #
+    #         if len(embeddings) > 0:
+    #             self.hetero_data[node_type].x = torch.stack(embeddings, dim=0).type("torch.FloatTensor")
+    #
+    #             # TODO: find the right masking strategy
+    #             if node_type == 'disease':
+    #                 train_mask, val_mask, test_mask = self.tvt_split(len(embeddings))
+    #                 self.hetero_data[node_type].update(
+    #                     dict(train_mask=train_mask, val_mask=val_mask, test_mask=test_mask))
+    #
+    #     for edge_type in self.edge_types:
+    #         meta_rel_type = meta_relations_dict_complete[edge_type]
+    #
+    #         source_indices = list([s for s, _ in self.type_index_dict[edge_type]])
+    #         target_indices = list([t for _, t in self.type_index_dict[edge_type]])
+    #
+    #         edge_index_feats = [torch.tensor(source_indices), torch.tensor(target_indices)]
+    #
+    #         if len(edge_index_feats[0]) != len(edge_index_feats[1]):
+    #             continue
+    #         elif len(edge_index_feats[0]) == 0:
+    #             continue
+    #
+    #         self.hetero_data[meta_rel_type[0], meta_rel_type[1], meta_rel_type[2]].edge_index = torch.stack(
+    #             edge_index_feats, dim=0)
 
     def validate_edges(self):
         # Convert the DataFrame to a set of tuples for fast lookup

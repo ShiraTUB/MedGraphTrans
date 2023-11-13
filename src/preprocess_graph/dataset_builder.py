@@ -2,7 +2,7 @@ import os.path
 import pickle
 import networkx as nx
 
-from src.preprocess_graph.build_subgraph import convert_nx_to_hetero_data
+from src.preprocess_graph.build_subgraph import convert_nx_to_hetero_data, split_data
 
 
 def build_data_list(root_dir: str):
@@ -35,8 +35,10 @@ merged_data_list = train_grap_data_l + val_grap_data_l
 
 merged_graph = build_merged_graphs_raw_dataset(merged_data_list)
 
-merged_hetero_data = convert_nx_to_hetero_data(merged_graph)
+merged_hetero_data = convert_nx_to_hetero_data(merged_graph, target_relation=('question', 'question_answer', 'answer'))
 
-pickle.dump(merged_hetero_data, open(os.path.join('../../datasets/merged_hetero_dataset/processed_graph_1000_train_val.pickle'), 'wb'))
+pickle.dump(merged_hetero_data, open(os.path.join('../../datasets/merged_hetero_dataset/processed_graph_1000_train_val_masked.pickle'), 'wb'))
+
+train_data, val_data, test_data = split_data(merged_hetero_data)
 
 print('end')

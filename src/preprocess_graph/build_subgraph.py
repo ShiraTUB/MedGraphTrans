@@ -1,18 +1,18 @@
-import networkx as nx
-import numpy as np
-import torch
 import os
 import pickle
 import openai
 import random
-import torch_geometric.transforms as T
+import torch
 
-from KnowledgeExtraction.trie_structure import Trie
-from KnowledgeExtraction.knowledge_extractor import KnowledgeExtractor
+import networkx as nx
+import numpy as np
+import torch_geometric.transforms as T
 from torch_geometric.data import HeteroData
 
-from src.utils import meta_relations_dict
 from config import OPENAI_API_KEY
+from src.utils import meta_relations_dict
+from KnowledgeExtraction.trie_structure import Trie
+from KnowledgeExtraction.knowledge_extractor import KnowledgeExtractor
 
 openai.api_key = OPENAI_API_KEY
 
@@ -65,9 +65,10 @@ def extract_knowledge_from_kg(question: str, trie: Trie, question_entities_list=
     return extracted_edges, extracted_edge_indices
 
 
-def convert_nx_to_hetero_data(graph: nx.Graph) -> HeteroData:
+def convert_nx_to_hetero_data(graph: nx.Graph, target_relation) -> HeteroData:
     """
     :param graph: nx graph to be transformed into hetero data
+    :param target_relation: relation type for masking
     :return: the hetero data crated from the graph
     """
     data = HeteroData()
@@ -107,16 +108,12 @@ def convert_nx_to_hetero_data(graph: nx.Graph) -> HeteroData:
             node_types_embeddings_dict[s_node_type].append(s_node_embedding)
             node_types_uids_dict[s_node_type].append(s_uid)
 
-        # elif not contains_tensor(node_types_embeddings_dict[s_node_type], s_node_embedding):
-        #     s_node_index = len(node_types_embeddings_dict[s_node_type])
-        #     node_types_embeddings_dict[s_node_type].append(s_node_embedding)
         elif s_uid not in node_types_uids_dict[s_node_type]:
             s_node_index = len(node_types_embeddings_dict[s_node_type])
             node_types_embeddings_dict[s_node_type].append(s_node_embedding)
             node_types_uids_dict[s_node_type].append(s_uid)
 
         else:
-            # s_node_index = next((index for index, tensor in enumerate(node_types_embeddings_dict[s_node_type]) if torch.equal(tensor, s_node_embedding)), None)
             s_node_index = node_types_uids_dict[s_node_type].index(s_uid)
 
         if t_node_type not in node_types_embeddings_dict:
@@ -126,16 +123,12 @@ def convert_nx_to_hetero_data(graph: nx.Graph) -> HeteroData:
             node_types_embeddings_dict[t_node_type].append(t_node_embedding)
             node_types_uids_dict[t_node_type].append(t_uid)
 
-        # elif not contains_tensor(node_types_embeddings_dict[t_node_type], t_node_embedding):
-        #     t_node_index = len(node_types_embeddings_dict[t_node_type])
-        #     node_types_embeddings_dict[t_node_type].append(t_node_embedding)
         elif t_uid not in node_types_uids_dict[t_node_type]:
             t_node_index = len(node_types_embeddings_dict[t_node_type])
             node_types_embeddings_dict[t_node_type].append(t_node_embedding)
             node_types_uids_dict[t_node_type].append(t_uid)
 
         else:
-            # t_node_index = next((index for index, tensor in enumerate(node_types_embeddings_dict[t_node_type]) if torch.equal(tensor, t_node_embedding)), None)
             t_node_index = node_types_uids_dict[t_node_type].index(t_uid)
 
         if relation not in edge_types_dict:
@@ -160,8 +153,6 @@ def convert_nx_to_hetero_data(graph: nx.Graph) -> HeteroData:
             node_types_uids_dict[node_type].append(node_uid)
             node_types_uids_dict[node_type].append(node_uid)
 
-        # elif not contains_tensor(node_types_embeddings_dict[node_type], node_embedding):
-        #     node_types_embeddings_dict[node_type].append(node_embedding)
         elif node_uid not in node_types_uids_dict[node_type]:
             node_types_embeddings_dict[node_type].append(node_embedding)
 
@@ -171,7 +162,42 @@ def convert_nx_to_hetero_data(graph: nx.Graph) -> HeteroData:
     for e_type in edge_types_dict.keys():
         data[e_type].edge_index = torch.transpose(torch.tensor(edge_types_dict[e_type]), 0, 1)
 
+        if e_type == target_relation:
+            train_mask, val_mask, test_mask = tvt_edge_split(data[e_type].num_edges)
+            data[e_type].update(
+                dict(train_mask=train_mask, val_mask=val_mask, test_mask=test_mask))
+
     data = T.ToUndirected()(data)
+
+    # Update nodes' masks
+    target_source_type = target_relation[0]
+    target_target_type = target_relation[2]
+
+    source_node_train_mask = torch.zeros(data[target_source_type].num_nodes, dtype=torch.int)
+    source_node_val_mask = torch.zeros(data[target_source_type].num_nodes, dtype=torch.int)
+    source_node_test_mask = torch.zeros(data[target_source_type].num_nodes, dtype=torch.int)
+    target_node_train_mask = torch.zeros(data[target_target_type].num_nodes, dtype=torch.int)
+    target_node_val_mask = torch.zeros(data[target_target_type].num_nodes, dtype=torch.int)
+    target_node_test_mask = torch.zeros(data[target_target_type].num_nodes, dtype=torch.int)
+
+    target_source_train_indices = data[target_relation].edge_index[0][data[target_relation].train_mask.nonzero().squeeze()]
+    target_source_val_indices = data[target_relation].edge_index[0][data[target_relation].val_mask.nonzero().squeeze()]
+    target_source_test_indices = data[target_relation].edge_index[0][data[target_relation].test_mask.nonzero().squeeze()]
+
+    target_target_train_indices = data[target_relation].edge_index[1][data[target_relation].train_mask.nonzero().squeeze()]
+    target_target_val_indices = data[target_relation].edge_index[1][data[target_relation].val_mask.nonzero().squeeze()]
+    target_target_test_indices = data[target_relation].edge_index[1][data[target_relation].test_mask.nonzero().squeeze()]
+
+    source_node_train_mask[target_source_train_indices] = 1
+    source_node_val_mask[target_source_val_indices] = 1
+    source_node_test_mask[target_source_test_indices] = 1
+
+    target_node_train_mask[target_target_train_indices] = 1
+    target_node_val_mask[target_target_val_indices] = 1
+    target_node_test_mask[target_target_test_indices] = 1
+
+    data[target_source_type].update(dict(train_mask=source_node_train_mask, val_mask=source_node_val_mask, test_mask=source_node_test_mask))
+    data[target_target_type].update(dict(train_mask=target_node_train_mask, val_mask=target_node_val_mask, test_mask=target_node_test_mask))
 
     return data
 
@@ -410,3 +436,30 @@ def contains_tensor(tensor_list, tensor_to_find):
         if torch.allclose(tensor, tensor_to_find):
             return True
     return False
+
+
+def tvt_edge_split(count: int, train_test_ratio=0.2, train_val_ratio=0.2) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    # taken from AdaStruct/Crawlers/scibert_hgt
+
+    ordered_edge_list = np.arange(count)
+    random_edge_list = np.random.permutation(ordered_edge_list)
+
+    test_len = int(count * train_test_ratio)
+    val_len = int((count - test_len) * train_val_ratio)
+
+    test_idx = random_edge_list[:test_len]
+    val_idx = random_edge_list[test_len: test_len + val_len]
+    train_idx = random_edge_list[test_len + val_len:]
+
+    train_mask = torch.zeros(count, dtype=torch.long)
+    # .to(device)
+    val_mask = torch.zeros(count, dtype=torch.long)
+    # .to(device)
+    test_mask = torch.zeros(count, dtype=torch.long)
+    # .to(device)
+
+    train_mask[train_idx] = 1
+    val_mask[val_idx] = 1
+    test_mask[test_idx] = 1
+
+    return train_mask, val_mask, test_mask
