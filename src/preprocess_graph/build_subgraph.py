@@ -161,6 +161,7 @@ def convert_nx_to_hetero_data(graph: nx.Graph, target_relation) -> HeteroData:
 
     for e_type in edge_types_dict.keys():
         data[e_type].edge_index = torch.transpose(torch.tensor(edge_types_dict[e_type]), 0, 1)
+        data[e_type].edge_uid = torch.tensor(np.arange(data[e_type].edge_index.size(1)))
 
         if e_type == target_relation:
             train_mask, val_mask, test_mask = tvt_edge_split(data[e_type].num_edges)
