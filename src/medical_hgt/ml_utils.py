@@ -34,7 +34,7 @@ def split_data(hetero_data, labels_ratio=0.3, neg_labels_ratio=1):
             test_indices = test_indices_all[test_label_len:]
 
             train_data[edge_type].edge_index = (edge_indices.T[train_indices_all]).T
-            train_data[edge_type].edge_label_indices = (edge_indices.T[train_indices_all]).T
+            train_data[edge_type].edge_label_index = (edge_indices.T[train_indices_all]).T
             train_data[edge_type].edge_label = torch.ones(train_data[edge_type].edge_index.size(1))
 
             val_data[edge_type].edge_index = (edge_indices.T[val_indices]).T

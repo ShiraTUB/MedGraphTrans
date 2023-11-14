@@ -1,5 +1,6 @@
 import pickle
 import torch
+import tqdm
 import torch.nn.functional as F
 import torch_geometric.transforms as T
 
@@ -9,35 +10,60 @@ from torch_geometric.loader import LinkNeighborLoader
 from src.utils import node_types, metadata
 from torch_geometric.data import HeteroData
 
-from src.medical_hgt.ml_utils import split_data
+from weighted_hgt_conv import WeightedHGTConv
 
 
-data_path = '../../datasets/merged_hetero_dataset/processed_graph_1000_train_val.pickle'
+data_path = '../../datasets/merged_hetero_dataset/processed_graph_1000_train_val_masked_with_edge_uids.pickle'
 with open(data_path, 'rb') as f:
     hetero_data = pickle.load(f)
 
-# transform = T.RandomLinkSplit(
-#     is_undirected=True,
-#     edge_types=("question", "question_answer", "answer"),
-#     rev_edge_types=("answer", "rev_question_answer", "question"),
-# )
-# train_data, val_data, test_data = transform(hetero_data)
+transform = T.RandomLinkSplit(
+    num_val=0.1,
+    num_test=0.1,
+    is_undirected=True,
+    disjoint_train_ratio=0.2,
+    neg_sampling_ratio=2.0,
+    add_negative_train_samples=False,
+    edge_types=("question", "question_answer", "answer"),
+    rev_edge_types=("answer", "rev_question_answer", "question"),
+)
 
+train_data, val_data, test_data = transform(hetero_data)
 
-# Define seed edges:
-# edge_label_index = train_data["question", "question_answer", "answer"].edge_label_index
-# edge_label = train_data["question", "question_answer", "answer"].edge_label
-# train_loader = LinkNeighborLoader(
-#     data=train_data.contiguous(),
-#     num_neighbors=[5] * len(train_data.node_types),
-#     neg_sampling_ratio=2.0,
-#     edge_label_index=(("question", "question_answer", "answer"), edge_label_index),
-#     edge_label=edge_label,
-#     batch_size=32,
-#     shuffle=True,
-# )
+# Perform mini batching
+edge_label_index = train_data["question", "question_answer", "answer"].edge_label_index
+edge_label = train_data["question", "question_answer", "answer"].edge_label
+train_loader = LinkNeighborLoader(
+    data=train_data.contiguous(),
+    num_neighbors=[4, 3, 2, 10, 10, 3],
+    neg_sampling_ratio=2.0,
+    edge_label_index=(("question", "question_answer", "answer"), edge_label_index),
+    edge_label=edge_label,
+    batch_size=32,
+    shuffle=True
+)
 
-train_data, val_data, test_data = split_data(hetero_data, labels_ratio=0.2, neg_labels_ratio=2)
+edge_label_index = val_data["question", "question_answer", "answer"].edge_label_index
+edge_label = val_data["question", "question_answer", "answer"].edge_label
+val_loader = LinkNeighborLoader(
+    data=val_data.contiguous(),
+    num_neighbors=[4, 3, 2, 10, 10, 3],
+    edge_label_index=(("question", "question_answer", "answer"), edge_label_index),
+    edge_label=edge_label,
+    batch_size=3 * 128,
+    shuffle=False,
+)
+
+edge_label_index = test_data["question", "question_answer", "answer"].edge_label_index
+edge_label = test_data["question", "question_answer", "answer"].edge_label
+test_loader = LinkNeighborLoader(
+    data=val_data.contiguous(),
+    num_neighbors=[4, 3, 2, 10, 10, 3],
+    edge_label_index=(("question", "question_answer", "answer"), edge_label_index),
+    edge_label=edge_label,
+    batch_size=3 * 128,
+    shuffle=False,
+)
 
 
 class HGT(torch.nn.Module):
@@ -51,36 +77,34 @@ class HGT(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
 
         for _ in range(num_layers):
-            conv = HGTConv(hidden_channels, hidden_channels, metadata,
+            conv = WeightedHGTConv(hidden_channels, hidden_channels, metadata,
                            num_heads, group='sum')
             self.convs.append(conv)
 
         self.lin = Linear(hidden_channels, out_channels)
 
-    def forward(self, data, edge_weights):
+    def forward(self, data, edge_weights_dict):
         x_dict = {
             node_type: self.lin_dict[node_type](x).relu_()
             for node_type, x in data.x_dict.items()
         }
 
-        # include edges weights before passing to hgt: apply weight to all source nodes for message passing
-        weighted_x_dict = {node_type: feature_tensor.clone() for node_type, feature_tensor in x_dict.items()}
-        for edge_type, edge_indices in data.edge_index_dict.items():
-            source_node_type = edge_type[0]
-            source_nodes_indices = edge_indices[0]
-
-            # apply a sigmoid function to keep weights in (0, 1)
-            edge_weights[edge_type[1]].data = torch.sigmoid(edge_weights[edge_type[1]].data)
-
-            edge_type_weights = edge_weights[edge_type[1]].squeeze()
-            weighted_x_dict[source_node_type][source_nodes_indices] *= edge_type_weights.unsqueeze(1).repeat(1, weighted_x_dict[source_node_type].size(1))  # for edge_index, source_node_index in enumerate(source_nodes_indices):
-            #     edge_weight = edge_weights[edge_type[1]][0][edge_index]
-            #     weighted_x_dict[source_node_type][source_node_index] *= edge_weight
+        # # include edges weights before passing to hgt: apply weight to all source nodes for message passing
+        # weighted_x_dict = {node_type: feature_tensor.clone() for node_type, feature_tensor in x_dict.items()}
+        # for edge_type, edge_indices in data.edge_index_dict.items():
+        #     source_node_type = edge_type[0]
+        #     source_nodes_indices = edge_indices[0]
+        #
+        #     # apply a sigmoid function to keep weights in (0, 1)
+        #     # edge_weights[edge_type[1]].data = torch.sigmoid(edge_weights[edge_type[1]].data)
+        #
+        #     edge_type_weights = edge_weights[edge_type[1]].squeeze()
+        #     weighted_x_dict[source_node_type][source_nodes_indices] *= edge_type_weights.unsqueeze(1).repeat(1, weighted_x_dict[source_node_type].size(1))
 
         for conv in self.convs:
-            weighted_x_dict = conv(weighted_x_dict, data.edge_index_dict)
+            x_dict = conv(x_dict, data.edge_index_dict, edge_weights_dict)
 
-        return weighted_x_dict
+        return x_dict
 
 
 # Our decoder applies the dot-product between source and destination node embeddings to derive edge-level predictions:
@@ -99,41 +123,34 @@ class Model(torch.nn.Module):
         self.hgt = HGT(hidden_channels=64, out_channels=64, num_heads=2, num_layers=1)
         self.decoder = Decoder()
         # Initialize learnable edge weights
-        self.edge_weights = torch.nn.ParameterDict({
-            edge_type[1]: torch.nn.Parameter(torch.rand(size=(1, edge_indices.size(1)), requires_grad=True))
-            for edge_type, edge_indices in edge_index_dict.items()
-        })
+        self.edge_weights_dict = torch.nn.ParameterDict()
+        for edge_type, edge_indices in edge_index_dict.items():
+            edge_type = '__'.join(edge_type)
+            self.edge_weights_dict[edge_type] = torch.nn.Parameter(torch.randn((1,  edge_indices.size(1))), requires_grad=True)
+        self.sigmoid = torch.nn.Sigmoid()
 
-    def forward(self, complete_graph_data, split_graph_data: HeteroData) -> (torch.Tensor, dict):
+    def forward(self, complete_graph_data, batch_data: HeteroData) -> (torch.Tensor, dict):
+        relevant_edge_weights_dict = {}
 
-        relevant_edge_weights = {}
+        # find the relevant indices in the models weights dict
+        for edge_type in batch_data.edge_types:
+            relevant_indices = complete_graph_data[edge_type].edge_uid[batch_data[edge_type].edge_uid]
+            edge_type = '__'.join(edge_type)
+            relevant_edge_weights_dict[edge_type] = self.edge_weights_dict[edge_type][0][relevant_indices]
 
-        for edge_type, edge_indices in split_graph_data.edge_index_dict.items():
-            # find the relevant indices in the models weights dict
-            data_split_indices = edge_indices
-            complete_edge_type_indices = complete_graph_data[edge_type].edge_index
-
-            # Expand dimensions for broadcasting
-            data_split_indices = data_split_indices.unsqueeze(1)
-            complete_edge_type_indices = complete_edge_type_indices.unsqueeze(2)
-
-            # Compare elements
-            matches = (complete_edge_type_indices == data_split_indices)
-
-            # Check if both elements of the pair match
-            matches_all = matches.all(dim=0)
-
-            # Find indices where the pairs are equal
-            relevant_indices = matches_all.nonzero(as_tuple=True)[1]
-            relevant_edge_weights[edge_type[1]] = self.edge_weights[edge_type[1]][0][relevant_indices]
-
-        weighted_z_dict = self.hgt(split_graph_data, relevant_edge_weights)
+        weighted_z_dict = self.hgt(batch_data, relevant_edge_weights_dict)
         pred = self.decoder(
             weighted_z_dict["question"],
             weighted_z_dict["answer"],
-            split_graph_data["question", "question_answer", "answer"].edge_label_index,
+            batch_data["question", "question_answer", "answer"].edge_label_index,
         )
-        return pred, self.edge_weights
+
+        pred = self.sigmoid(pred)
+
+        # Make sure edges weights are between 0 and 1
+        # for edge_type in self.edge_weights_dict.keys():
+        #     self.edge_weights_dict[edge_type].data = self.sigmoid(self.edge_weights_dict[edge_type].data)
+        return pred
 
 
 model = Model(hetero_data.edge_index_dict)
@@ -143,60 +160,66 @@ model = model.to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 
-def train(model, complete_graph_data, train_data):
+def train(model, complete_graph_data, train_loader):
     model.train()
-    optimizer.zero_grad()
+    total_loss = total_examples = 0
 
-    train_data.to(device)
-    pred, edge_weights = model(complete_graph_data, train_data)
-    ground_truth = train_data["question", "question_answer", "answer"].edge_label
-    link_prediction_loss = F.binary_cross_entropy_with_logits(pred, ground_truth)
-    link_prediction_loss.backward()
-    optimizer.step()
-    total_loss = float(link_prediction_loss) * pred.numel()
-    total_examples = pred.numel()
-    return total_loss / total_examples
+    # Mini-Batching
+    for sampled_data in tqdm.tqdm(train_loader):
+        optimizer.zero_grad()
+        sampled_data.to(device)
+        pred = model(complete_graph_data, sampled_data)
+        ground_truth = sampled_data["question", "question_answer", "answer"].edge_label
 
-    # # with minibatching
-    # total_loss = total_examples = 0
-    # for sampled_data in tqdm.tqdm(train_loader):
-    #     optimizer.zero_grad()
-    #     sampled_data.to(device)
-    #     pred = model(sampled_data)
-    #     ground_truth = sampled_data["question", "question_answer", "answer"].edge_label
-    #
-    #     # Compute the loss with regularization
-    #     reg_loss = 0
-    #     for param in model.edge_weights.values():
-    #         reg_loss += torch.norm(param)
-    #     loss = F.binary_cross_entropy_with_logits(pred, ground_truth) + l2_lambda * reg_loss
-    #     loss.backward()
-    #     optimizer.step()
-    #     total_loss += float(loss) * pred.numel()
-    #     total_examples += pred.numel()
-    # print(f"Epoch: {epoch:03d}, Loss: {total_loss / total_examples:.4f}")
+        link_prediction_loss = F.binary_cross_entropy_with_logits(pred, ground_truth)
+        link_prediction_loss.backward()
+        optimizer.step()
+
+        total_loss += float(link_prediction_loss) * pred.numel()
+        total_examples += pred.numel()
+    return total_loss / total_examples, model.edge_weights_dict
 
 
 @torch.no_grad()
-def test(model, complete_graph_data, test_data):
+def test(model, complete_graph_data, test_loader):
     model.eval()
     preds = []
     ground_truths = []
-    val_data.to(device)
-    prediction, edges_weights = model(complete_graph_data, test_data)
-    preds.append(prediction)
-    ground_truths.append(val_data["question", "question_answer", "answer"].edge_label)
+
+    # Mini-Batching
+    for sampled_data in tqdm.tqdm(test_loader):
+        with torch.no_grad():
+            sampled_data.to(device)
+            pred = model(complete_graph_data, sampled_data)
+            preds.append(pred)
+            ground_truths.append(sampled_data["question", "question_answer", "answer"].edge_label)
+
     pred = torch.cat(preds, dim=0).cpu().numpy()
     ground_truth = torch.cat(ground_truths, dim=0).cpu().numpy()
     auc = roc_auc_score(ground_truth, pred)
-    return auc
+    return auc, model.edge_weights_dict
 
 
-for epoch in range(1, 101):
-    loss = train(model, hetero_data, train_data)
-    val_auc = test(model, hetero_data, val_data)
-    print(f"Epoch: {epoch:03d}, Train Loss: {loss:.4f}")
+def weights_decoder(hetero_data, edge_weights):
+    top_10_edge_per_type = {}
+    for edge_type in edge_weights.keys():
+        weights = edge_weights[edge_type].data
+        top_10_indices = torch.topk(weights, 10).indices.squeeze()
+        top_10_edge_per_type[edge_type] = hetero_data[edge_type].edge_index[:, top_10_indices]
+
+        # todo: continue
+
+    return 0
+
+
+for epoch in range(1, 5):
+    loss, _ = train(model, hetero_data, train_loader)
+    val_auc, _ = test(model, hetero_data, val_loader)
+    print(f"\nEpoch: {epoch:03d}, Train Loss: {loss:.4f}")
     print(f"Validation AUC: {val_auc:.4f}")
-    print()
+
+test_auc, edge_weights = test(model, hetero_data, test_loader)
+most_relevant_nodes = weights_decoder(hetero_data, edge_weights)
+print(f"Test AUC: {test_auc:.4f}")
 
 print('test')
