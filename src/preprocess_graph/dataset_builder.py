@@ -27,15 +27,15 @@ def build_merged_graphs_raw_dataset(graphs_list):
     return merged_graph
 
 
-train_grap_data_l = build_data_list('../../datasets/raw_graph_dataset/train')
-val_grap_data_l = build_data_list('../../datasets/raw_graph_dataset/validation')
+# train_grap_data_l = build_data_list('../../datasets/raw_graph_dataset/train')
+# val_grap_data_l = build_data_list('../../datasets/raw_graph_dataset/validation')
 test_grap_data_l = build_data_list('../../datasets/raw_graph_dataset/test')
 
-merged_data_list = train_grap_data_l + val_grap_data_l
+# merged_data_list = train_grap_data_l + val_grap_data_l
 
-merged_graph = build_merged_graphs_raw_dataset(merged_data_list)
+merged_graph = build_merged_graphs_raw_dataset(test_grap_data_l)
 
-merged_hetero_data = convert_nx_to_hetero_data(merged_graph, target_relation=('question', 'question_answer', 'answer'))
+merged_hetero_data = convert_nx_to_hetero_data(merged_graph)
 
 pickle.dump(merged_hetero_data, open(os.path.join('../../datasets/merged_hetero_dataset/processed_graph_1000_train_val_masked_with_edge_uids.pickle'), 'wb'))
 
