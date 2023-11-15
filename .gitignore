@@ -158,6 +158,7 @@ cython_debug/
 KnowledgeExtraction/data
 DiaTransNet/model/embedding_weights
 datasets/
+experiments/
 DiaTransNet/dd_datasets/
 training_logs/
 lightning_logs/

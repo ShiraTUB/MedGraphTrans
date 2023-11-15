@@ -1,7 +1,5 @@
 import argparse
 import os
-import torch
-import copy
 
 from lightning.pytorch import Trainer
 from lightning.pytorch.tuner import Tuner
@@ -9,9 +7,9 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import LearningRateMonitor
 from torch_geometric.loader import DataLoader
 
-from src.medical_hgt.model import MedicalQAModel
-from src.medical_hgt.encoder import MedicalEncoder
-from src.medical_hgt.decoder import Decoder, PositionalEncoding, Generator
+from src.old.model import MedicalQAModel
+from src.old.encoder import MedicalEncoder
+from src.old.decoder import Decoder
 from src.preprocess_graph.dataset_builder import build_dataset
 from src.utils import node_types, meta_relations_dict
 from config import ROOT_DIR
@@ -46,15 +44,7 @@ def train():
 
     encoder = MedicalEncoder(args.d_model, node_types, metadata)
 
-    embs_word = torch.nn.Embedding.from_pretrained(weights, padding_idx=0, freeze=False)
-
-    pos = PositionalEncoding(d_model=weights.shape[1], dropout=args.dropout)
-
     decoder = Decoder(d_model=768, d_ff=args.d_ff, n_heads=args.n_heads, dropout=0.1, n_blocks=args.n_blocks)
-
-    tgt_emb = torch.nn.Sequential(embs_word, copy.deepcopy(pos))
-
-    generator = Generator(args.d_model, vocab)
 
     med_qa_model = MedicalQAModel(encoder, decoder, tgt_emb, generator, args.lr)
 
