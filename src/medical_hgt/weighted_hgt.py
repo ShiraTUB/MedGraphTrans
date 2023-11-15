@@ -205,14 +205,16 @@ def weights_decoder(hetero_data, edge_weights):
     for edge_type in edge_weights.keys():
         weights = edge_weights[edge_type].data
         top_10_indices = torch.topk(weights, 10).indices.squeeze()
-        top_10_edge_per_type[edge_type] = hetero_data[edge_type].edge_index[:, top_10_indices]
+        edge_type_tuple = edge_type.split('__')
+        edge_type_tuple = (edge_type_tuple[0], edge_type_tuple[1], edge_type_tuple[2])
+        top_10_edge_per_type[edge_type] = hetero_data[edge_type_tuple].edge_index[:, top_10_indices]
 
         # todo: continue
 
     return 0
 
 
-for epoch in range(1, 5):
+for epoch in range(1, 20):
     loss, _ = train(model, hetero_data, train_loader)
     val_auc, _ = test(model, hetero_data, val_loader)
     print(f"\nEpoch: {epoch:03d}, Train Loss: {loss:.4f}")
