@@ -13,7 +13,7 @@ root_dir = os.path.dirname(os.path.abspath(__file__))
 knowledge_graph_path = os.path.join(root_dir, 'data/primeKG_nx_medium.pickle')
 knowledge_graph = pickle.load(open(knowledge_graph_path, 'rb'))
 
-embeddings_path = os.path.join(root_dir, 'data/primeKG_embeddings.pt')
+embeddings_path = os.path.join(root_dir, '../datasets/primeKG_embeddings_tensor.pt')
 node_embeddings = torch.load(embeddings_path)
 
 trie_path = '../datasets/trie.pickle'  # set to None if no trie is available

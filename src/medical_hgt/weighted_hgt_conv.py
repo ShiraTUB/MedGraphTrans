@@ -6,7 +6,7 @@ from torch.nn import Parameter
 from torch.nn import ParameterDict
 from typing import Dict, List, Optional, Set, Tuple, Union
 from torch_geometric.utils.num_nodes import maybe_num_nodes_dict
-from torch_geometric.nn.conv import MessagePassing
+from torch_geometric.nn.conv import MessagePassing, GCNConv
 from torch_geometric.nn.dense import HeteroDictLinear, HeteroLinear
 from torch_geometric.nn.inits import ones
 from torch_geometric.nn.parameter_dict import ParameterDict
@@ -40,13 +40,14 @@ class WeightedHGTConv(MessagePassing):
         **kwargs (optional): Additional arguments of
             :class:`torch_geometric.nn.conv.MessagePassing`.
     """
+
     def __init__(
-        self,
-        in_channels: Union[int, Dict[str, int]],
-        out_channels: int,
-        metadata: Metadata,
-        heads: int = 1,
-        **kwargs,
+            self,
+            in_channels: Union[int, Dict[str, int]],
+            out_channels: int,
+            metadata: Metadata,
+            heads: int = 1,
+            **kwargs,
     ):
         super().__init__(aggr='add', node_dim=0, **kwargs)
 
@@ -116,8 +117,8 @@ class WeightedHGTConv(MessagePassing):
         return torch.cat(outs, dim=0), offset
 
     def _construct_src_node_feat(
-        self, k_dict: Dict[str, Tensor], v_dict: Dict[str, Tensor],
-        edge_index_dict: Dict[EdgeType, Adj]
+            self, k_dict: Dict[str, Tensor], v_dict: Dict[str, Tensor],
+            edge_index_dict: Dict[EdgeType, Adj]
     ) -> Tuple[Tensor, Tensor, Dict[EdgeType, int]]:
         """Constructs the source node representations."""
         cumsum = 0
@@ -154,10 +155,10 @@ class WeightedHGTConv(MessagePassing):
         return k, v, offset
 
     def forward(
-        self,
-        x_dict: Dict[NodeType, Tensor],
-        edge_index_dict: Dict[EdgeType, Adj],
-        edge_weight_dict: Dict[EdgeType, Tensor] = None # new edge_weights dict (learnable)
+            self,
+            x_dict: Dict[NodeType, Tensor],
+            edge_index_dict: Dict[EdgeType, Adj],
+            edge_weight_dict: Dict[EdgeType, Tensor] = None  # new edge_weights dict (learnable)
     ) -> Dict[NodeType, Optional[Tensor]]:
         r"""Runs the forward pass of the module.
 
@@ -210,7 +211,7 @@ class WeightedHGTConv(MessagePassing):
         # Transform output node embeddings:
         a_dict = self.out_lin({
             k:
-            torch.nn.functional.gelu(v) if v is not None else v
+                torch.nn.functional.gelu(v) if v is not None else v
             for k, v in out_dict.items()
         })
 
@@ -230,16 +231,22 @@ class WeightedHGTConv(MessagePassing):
                 index: Tensor, ptr: Optional[Tensor],
                 size_i: Optional[int]) -> Tensor:
         alpha = (q_i * k_j).sum(dim=-1) * edge_attr
+
+        # TODO: check if  edge_weight[index] is the correct weight
+        # TODO: check where to call the sigmoid function on the edge weights
         if edge_weight is not None:
             alpha = alpha * edge_weight[index]  # Apply edge weights
+
         alpha = alpha / math.sqrt(q_i.size(-1))
         alpha = softmax(alpha, index, ptr, size_i)
         out = v_j * alpha.view(-1, self.heads, 1)
+
         return out.view(-1, self.out_channels)
 
     def __repr__(self) -> str:
         return (f'{self.__class__.__name__}(-1, {self.out_channels}, '
                 f'heads={self.heads})')
+
 
 def group_hetero_graph(edge_index_dict, num_nodes_dict=None):
     num_nodes_dict = maybe_num_nodes_dict(edge_index_dict, num_nodes_dict)
@@ -253,7 +260,7 @@ def group_hetero_graph(edge_index_dict, num_nodes_dict=None):
     local2global = {}
     for i, (key, N) in enumerate(num_nodes_dict.items()):
         key2int[key] = i
-        node_types.append(tmp.new_full((N, ), i))
+        node_types.append(tmp.new_full((N,), i))
         local_node_indices.append(torch.arange(N, device=tmp.device))
         offset[key] = cumsum
         local2global[key] = local_node_indices[-1] + cumsum
@@ -268,7 +275,7 @@ def group_hetero_graph(edge_index_dict, num_nodes_dict=None):
         key2int[keys] = i
         inc = torch.tensor([offset[keys[0]], offset[keys[-1]]]).view(2, 1)
         edge_indices.append(edge_index + inc.to(tmp.device))
-        edge_types.append(tmp.new_full((edge_index.size(1), ), i))
+        edge_types.append(tmp.new_full((edge_index.size(1),), i))
 
     edge_index = torch.cat(edge_indices, dim=-1)
     edge_type = torch.cat(edge_types, dim=0)
@@ -293,11 +300,11 @@ def check_add_self_loops(module: torch.nn.Module, edge_types: List[EdgeType]):
 
 
 def construct_bipartite_edge_index(
-    edge_index_dict: Dict[EdgeType, Adj],
-    src_offset_dict: Dict[EdgeType, int],
-    dst_offset_dict: Dict[NodeType, int],
-    edge_attr_dict: Optional[Dict[EdgeType, Tensor]] = None,
-    edge_weight_dict: Optional[ParameterDict] = None
+        edge_index_dict: Dict[EdgeType, Adj],
+        src_offset_dict: Dict[EdgeType, int],
+        dst_offset_dict: Dict[NodeType, int],
+        edge_attr_dict: Optional[Dict[EdgeType, Tensor]] = None,
+        edge_weight_dict: Optional[ParameterDict] = None
 ) -> Tuple[Adj, Optional[Tensor], Optional[Tensor]]:
     """Constructs a tensor of edge indices by concatenating edge indices
     for each edge type. The edge indices are increased by the offset of the
@@ -329,6 +336,7 @@ def construct_bipartite_edge_index(
 
         # TODO Add support for SparseTensor w/o converting.
         is_sparse_tensor = isinstance(edge_index, SparseTensor)
+
         if is_sparse(edge_index):
             edge_index, _ = to_edge_index(edge_index)
             edge_index = edge_index.flip([0])
@@ -344,24 +352,30 @@ def construct_bipartite_edge_index(
                 edge_attr = edge_attr_dict['__'.join(edge_type)]
             else:
                 edge_attr = edge_attr_dict[edge_type]
+
             if edge_attr.size(0) != edge_index.size(1):
                 edge_attr = edge_attr.expand(edge_index.size(1), -1)
+
             edge_attrs.append(edge_attr)
 
         # Handle edge weights
         if edge_weight_dict is not None and '__'.join(edge_type) in edge_weight_dict:
             edge_weight = edge_weight_dict['__'.join(edge_type)]
+
             if edge_weight.size(0) != edge_index.size(1):
                 edge_weight = edge_weight.expand(edge_index.size(1), -1)
+
             edge_weights.append(edge_weight)
 
     edge_index = torch.cat(edge_indices, dim=1)
 
     edge_attr: Optional[Tensor] = None
+
     if edge_attr_dict is not None:
         edge_attr = torch.cat(edge_attrs, dim=0)
 
     edge_weight: Optional[Tensor] = None
+
     if edge_weight_dict is not None:
         edge_weight = torch.cat(edge_weights, dim=0)
         edge_weight = torch.stack((edge_weight, edge_weight), dim=1)
