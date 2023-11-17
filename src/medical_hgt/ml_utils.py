@@ -130,6 +130,7 @@ def split_data(hetero_data: HeteroData, positive_target_relation: tuple[str, str
 
 def negative_sampler(source_node_indices, negative_indices: torch.Tensor, negative_sampling_ration=3):
     negative_examples = []
+
     for index in source_node_indices[0]:
         negative_example_indices = torch.where(negative_indices[0] == index)[0][:negative_sampling_ration]
         negative_examples.append(negative_indices.T[negative_example_indices].T)

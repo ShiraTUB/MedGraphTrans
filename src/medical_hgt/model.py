@@ -86,7 +86,7 @@ class Model(torch.nn.Module):
         pred = self.decoder(
             weighted_z_dict["question"],
             weighted_z_dict["answer"],
-            batch_data["question", "question_answer", "answer"].edge_label_index,
+            batch_data["question", "question_correct_answer", "answer"].edge_label_index,
         )
 
         # Make sure edges weights are between 0 and 1

@@ -53,7 +53,7 @@ def evaluate_model(model, split_loaders, split_name, device, frac=1.0):
 
             # only evaluate the predictions from the split we care about
             eval_pred = pred.detach()
-            eval_y = batch["question", "question_answer", "answer"].edge_label.detach()
+            eval_y = batch["question", "question_correct_answer", "answer"].edge_label.detach()
 
             y_pred_tensors.append(eval_pred)
             y_true_tensors.append(eval_y)
@@ -164,7 +164,7 @@ def train_model(model, split_loaders, device, file_name, num_epochs=30, lr=5e-3)
             # (i.e., batch.edge_label_index).
             train_pred = model(batch)
 
-            train_y = batch["question", "question_answer", "answer"].edge_label
+            train_y = batch["question", "question_correct_answer", "answer"].edge_label
 
             loss = loss_fn(train_pred, train_y)
             loss.backward()
