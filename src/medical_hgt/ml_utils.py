@@ -99,9 +99,9 @@ def split_data(hetero_data: HeteroData, positive_target_relation: tuple[str, str
             test_data[edge_type].edge_uid = hetero_data[edge_type].edge_uid[test_indices]
 
         elif edge_type[1] == f'rev_{positive_target_relation[1]}':
-            train_data[edge_type].edge_index = train_data[positive_target_relation].edge_index
-            val_data[edge_type].edge_index = val_data[positive_target_relation].edge_index
-            test_data[edge_type].edge_index = test_data[positive_target_relation].edge_index
+            train_data[edge_type].edge_index = train_data[positive_target_relation].edge_index[[1, 0]]
+            val_data[edge_type].edge_index = val_data[positive_target_relation].edge_index[[1, 0]]
+            test_data[edge_type].edge_index = test_data[positive_target_relation].edge_index[[1, 0]]
             train_data[edge_type].edge_uid = hetero_data[edge_type].edge_uid[train_indices]
             val_data[edge_type].edge_uid = hetero_data[edge_type].edge_uid[val_indices]
             test_data[edge_type].edge_uid = hetero_data[edge_type].edge_uid[test_indices]

@@ -11,7 +11,7 @@ from src.medical_hgt.data_loaders import build_link_neighbor_loaders
 from config import ROOT_DIR
 
 parser = argparse.ArgumentParser(description='Training HGT on PrimeKG + Medmcqa')
-parser.add_argument('--dataset_path', type=str, default='datasets/merged_hetero_dataset/processed_graph_1000_train_val_masked_with_edge_uids_and neg_edges.pickle', help='Path of the processed dataset')
+parser.add_argument('--dataset_path', type=str, default='datasets/merged_hetero_dataset/processed_graph_1000_train_val_masked_with_edge_uids_and_neg_edges.pickle', help='Path of the processed dataset')
 parser.add_argument('--experiment_output_path', type=str, default='experiments', help='Path of the target experiments folder')
 
 args = parser.parse_args()

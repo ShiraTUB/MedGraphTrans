@@ -50,7 +50,7 @@ def build_link_neighbor_loaders(data, neg_sampling_ratio, num_neighbors, batch_s
             # Only the training set has negative sampling at the loader level; the
             # validation and test sets have negative sampling at the data split-level instead.
             # neg_sampling_ratio=neg_sampling_ratio if is_train else 0.0,
-            neg_sampling_ratio=0.0,
+            neg_sampling_ratio=3.0,
             edge_label=edge_label,
             edge_label_index=edge_label_index,
             batch_size=batch_size
