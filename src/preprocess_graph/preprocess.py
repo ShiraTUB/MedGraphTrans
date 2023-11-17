@@ -28,7 +28,7 @@ if __name__ == "__main__":
     node_embeddings = torch.load(os.path.join(ROOT_DIR, args.prime_kg_embeddings_dataset))
     node_indices_list = pickle.load(open(os.path.join(ROOT_DIR, args.prime_kg_indices), 'rb'))
 
-    for purpose in ['test']:
+    for purpose in ['train', 'validation', 'test']:
 
         args.target_dataset = purpose
 
@@ -40,7 +40,7 @@ if __name__ == "__main__":
         else:
             trie = pickle.load(open(os.path.join(ROOT_DIR, args.trie_path), 'rb'))
 
-        medmcqa_df = medmcqa_df[8:500]
+        medmcqa_df = medmcqa_df[:500]
 
         # iterate over medmcqa_df and add the questions to the graph
         for i, row in medmcqa_df.iterrows():
@@ -69,19 +69,13 @@ if __name__ == "__main__":
             extracted_edges, extracted_edge_indices = extract_knowledge_from_kg(question, trie, question_entities_list, answer_entities_list)
 
             if extracted_edge_indices is not None:
-
                 graph = expand_graph_with_knowledge(graph, extracted_edge_indices, prime_kg)
 
             pickle.dump(graph, open(os.path.join(ROOT_DIR, args.dataset_target_path, args.target_dataset, f'graph_{i}.pickle'), 'wb'))
             print('processed {} out of {} rows'.format(i, len(medmcqa_df)))
-            continue
 
-            print('number of answer nodes in nx_graph: ', len([node for node, data in graph.nodes(data=True) if data['type'] == 'answer']))
-            hetero_data = convert_nx_to_hetero_data(graph)
-
-            print('number of answer nodes in hetero data:', hetero_data['answer'].num_nodes)
-            print('\n')
+            # hetero_data = convert_nx_to_hetero_data(graph)
 
             # pickle.dump(hetero_data, open(os.path.join(ROOT_DIR, args.dataset_target_path, args.target_dataset, f'part_{i}.pickle'), 'wb'))
 
-            print('processed {} out of {} rows'.format(i, len(medmcqa_df)))
+            # print('processed {} out of {} rows'.format(i, len(medmcqa_df)))

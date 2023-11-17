@@ -29,17 +29,37 @@ def build_merged_graphs_raw_dataset(graphs_list):
 
     return merged_graph
 
+def fix_graph(nx_graph):
+    question_node = [node for node, attr in nx_graph.nodes(data=True) if attr.get('type') == 'question'][0]
+    answer_nodes = [node for node, attr in nx_graph.nodes(data=True) if attr.get('type') == 'answer']
 
-# train_grap_data_l = build_data_list('../../datasets/raw_graph_dataset/train')
-# val_grap_data_l = build_data_list('../../datasets/raw_graph_dataset/validation')
-test_grap_data_l = build_data_list('../../datasets/raw_graph_dataset/test')
+    for answer_node in answer_nodes:
+        if nx_graph.has_edge(question_node, answer_node):
+            nx_graph[question_node][answer_node]['relation'] = "question_correct_answer"
+        else:
+            nx_graph.add_edge(question_node, answer_node, relation="question_wrong_answer")
 
-# merged_data_list = train_grap_data_l + val_grap_data_l
+    return nx_graph
 
-merged_graph = build_merged_graphs_raw_dataset(test_grap_data_l)
 
-merged_hetero_data = convert_nx_to_hetero_data(merged_graph)
+train_graph_data_l = build_data_list('../../datasets/raw_graph_dataset/train')
+val_graph_data_l = build_data_list('../../datasets/raw_graph_dataset/validation')
+# test_graph_data_l = build_data_list('../../datasets/raw_graph_dataset/test')
 
-pickle.dump(merged_hetero_data, open(os.path.join('../../datasets/merged_hetero_dataset/processed_graph_1000_train_val_masked_with_edge_uids.pickle'), 'wb'))
+fixed_train_graph_l = []
+for graph in train_graph_data_l:
+    fixed_train_graph_l.append(fix_graph(graph))
+
+fixed_val_graph_l = []
+for graph in val_graph_data_l:
+    fixed_val_graph_l.append(fix_graph(graph))
+
+merged_data_list = fixed_train_graph_l + fixed_val_graph_l
+
+merged_graph = build_merged_graphs_raw_dataset(merged_data_list)
+
+merged_hetero_data = convert_nx_to_hetero_data(merged_graph, ('question', 'question_correct_answer', 'answer'))
+
+pickle.dump(merged_hetero_data, open(os.path.join('../../datasets/merged_hetero_dataset/processed_graph_1000_train_val_masked_with_edge_uids_and neg_edges.pickle'), 'wb'))
 
 print('end')

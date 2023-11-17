@@ -276,7 +276,9 @@ def initiate_question_graph(graph: nx.Graph, question: str, answer_choices: [str
         graph.add_node(answer_index, embedding=answer_embeddings, type="answer", index=answer_index, name=answer_choice, answer_choice_index=choice_index)
 
         if choice_index == correct_answer:
-            graph.add_edge(question_index, answer_index, relation="question_answer")
+            graph.add_edge(question_index, answer_index, relation="question_correct_answer")
+        else:
+            graph.add_edge(question_index, answer_index, relation="question_wrong_answer")
 
         for answer_entity_index in answer_entities_dict[answer_choice]:
             target_node = prime_kg.nodes[answer_entity_index]
@@ -443,7 +445,7 @@ def contains_tensor(tensor_list, tensor_to_find):
     return False
 
 
-def tvt_edge_split(count: int, train_test_ratio=0.2, train_val_ratio=0.2) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def tvt_edge_split(count: int, train_test_ratio=0.1, train_val_ratio=0.1) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     # taken from AdaStruct/Crawlers/scibert_hgt
 
     ordered_edge_list = np.arange(count)
