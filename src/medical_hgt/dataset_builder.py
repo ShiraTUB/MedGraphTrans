@@ -138,19 +138,26 @@ class MedicalQADatasetBuilder:
                 labels_length = 1 if positive_edge_label_index_indices.dim() == 0 else len(positive_edge_label_index_indices)
                 positive_edge_label = torch.ones((1, labels_length))
 
+            positive_edge_index_uids = batch[self.positive_relation_type].edge_uid[positive_edge_index_indices]
+            positive_edge_label_uids = batch[self.positive_relation_type].edge_uid[positive_edge_label_index_indices]
+
             # Find the EdgeStore attributes for positive_relation_type (self.negative_ampler ensures each batch contain all answer possibilities per question)
-            negative_edge_index = self.negative_sampler(batch, positive_edge_index[0])
-            negative_edge_label_index = self.negative_sampler(batch, positive_edge_label_index[0])
+            negative_edge_index, negative_edge_index_uids = self.negative_sampler(batch, positive_edge_index[0])
+            negative_edge_label_index, negative_edge_label_uids = self.negative_sampler(batch, positive_edge_label_index[0])
             negative_edge_label = torch.zeros((1, negative_edge_label_index.size(1)))
 
             # Set EdgeStore attribute
             batch[self.positive_relation_type].edge_index = positive_edge_index
             batch[self.positive_relation_type].edge_label_index = positive_edge_label_index
             batch[self.positive_relation_type].edge_label = positive_edge_label
+            batch[self.positive_relation_type].edge_index_uid = positive_edge_index_uids
+            batch[self.positive_relation_type].edge_label_uid = positive_edge_label_uids
 
             batch[self.negative_relation_type].edge_index = negative_edge_index
             batch[self.negative_relation_type].edge_label_index = negative_edge_label_index
             batch[self.negative_relation_type].edge_label = negative_edge_label
+            batch[self.negative_relation_type].edge_index_uid = negative_edge_index_uids
+            batch[self.negative_relation_type].edge_label_uid = negative_edge_label_uids
 
             # Set EdgeStore attributes for the reverse relations
             rev_positive_relation_type = (self.positive_relation_type[2], f'rev_{self.positive_relation_type[1]}', self.positive_relation_type[0])
@@ -159,10 +166,16 @@ class MedicalQADatasetBuilder:
             batch[rev_positive_relation_type].edge_index = positive_edge_index.flip([0])
             batch[rev_positive_relation_type].edge_label_index = positive_edge_label_index.flip([0])
             batch[rev_positive_relation_type].edge_label = positive_edge_label
+            batch[rev_positive_relation_type].edge_index_uid = positive_edge_index_uids
+            batch[rev_positive_relation_type].edge_label_uid = positive_edge_label_uids
 
             batch[rev_negative_relation_type].edge_index = negative_edge_index.flip([0])
             batch[rev_negative_relation_type].edge_label_index = negative_edge_label_index.flip([0])
             batch[rev_negative_relation_type].edge_label = negative_edge_label
+            batch[rev_negative_relation_type].edge_index_uid = negative_edge_index_uids
+            batch[rev_negative_relation_type].edge_label_uid = negative_edge_label_uids
+
+
 
             processed_batches.append(batch)
 
@@ -170,6 +183,7 @@ class MedicalQADatasetBuilder:
 
     def negative_sampler(self, batch, source_node_indices):
         negative_examples = []
+        negative_edge_uids = []
         negative_indices = batch[self.negative_relation_type].edge_index
 
         if source_node_indices.dim() == 0:
@@ -177,9 +191,10 @@ class MedicalQADatasetBuilder:
 
         for index in source_node_indices:
             negative_example_indices = torch.where(negative_indices[0] == index)[0][:self.negative_sampling_ratio]
-            negative_examples.append(negative_indices.T[negative_example_indices].T)
+            negative_examples.append(negative_indices[:, negative_example_indices])
+            negative_edge_uids.append(batch[self.negative_relation_type].edge_uid[negative_example_indices])
 
-        return torch.cat(negative_examples, dim=1)
+        return torch.cat(negative_examples, dim=1), torch.cat(negative_edge_uids)
 
     def split_labels(self, batch, edge_index_uids_dict):
 

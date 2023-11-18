@@ -77,7 +77,10 @@ class Model(torch.nn.Module):
 
         # find the relevant indices in the models weights dict
         for edge_type in batch_data.edge_types:
-            relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in batch_data[edge_type].edge_uid])
+            if hasattr(batch_data[edge_type], "edge_index_uid"):
+                relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in batch_data[edge_type].edge_index_uid])
+            else:
+                relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in batch_data[edge_type].edge_uid])
             edge_type = '__'.join(edge_type)
             relevant_edge_weights_dict[edge_type] = self.edge_weights_dict[edge_type][0][relevant_indices]
 

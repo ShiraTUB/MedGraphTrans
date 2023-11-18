@@ -235,7 +235,7 @@ class WeightedHGTConv(MessagePassing):
         # TODO: check if  edge_weight[index] is the correct weight
         # TODO: check where to call the sigmoid function on the edge weights
         if edge_weight is not None:
-            alpha = alpha * edge_weight[index]  # Apply edge weights
+            alpha = alpha * edge_weight  # Apply edge weights
 
         alpha = alpha / math.sqrt(q_i.size(-1))
         alpha = softmax(alpha, index, ptr, size_i)
