@@ -14,14 +14,6 @@ class HGT(torch.nn.Module):
 
         self.all_edges_dict = all_edges_dict
 
-        # Initialize learnable edge weights
-        self.edge_weights_dict = torch.nn.ParameterDict()
-
-        for edge_type, edge_indices in all_edges_dict.items():
-            edge_type = '__'.join(edge_type)
-            parameter_tensor = torch.nn.Parameter(F.sigmoid(torch.randn((1, len(edge_indices)), requires_grad=True)))
-            self.edge_weights_dict[edge_type] = parameter_tensor
-
         self.lin_dict = torch.nn.ModuleDict()
 
         for node_type in node_types:
@@ -30,7 +22,8 @@ class HGT(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
 
         for _ in range(num_layers):
-            conv = WeightedHGTConv(hidden_channels, hidden_channels, metadata, num_heads, group='sum')
+            conv = WeightedHGTConv(hidden_channels, hidden_channels, metadata, num_heads, all_edges_dict, group='sum')
+            self.edge_weights_dict = conv.edge_weights_dict
             self.convs.append(conv)
 
         self.lin = Linear(hidden_channels, out_channels)
@@ -63,7 +56,7 @@ class HGT(torch.nn.Module):
             relevant_edge_weights_indices_dict[edge_type] = relevant_indices
 
         for conv in self.convs:
-            x_dict = conv(x_dict, data.edge_index_dict, self.edge_weights_dict, relevant_edge_weights_indices_dict)
+            x_dict = conv(x_dict, data.edge_index_dict, relevant_edge_weights_indices_dict)
 
         return x_dict
 

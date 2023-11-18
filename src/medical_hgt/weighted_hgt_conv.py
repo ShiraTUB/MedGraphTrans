@@ -1,5 +1,6 @@
 import math
 import torch
+import torch.nn.functional as F
 
 from torch import Tensor
 from typing import Dict, Optional, Union
@@ -17,15 +18,25 @@ class WeightedHGTConv(HGTConv):
             out_channels: int,
             metadata: Metadata,
             heads: int = 1,
+            all_edges_dict: Dict[EdgeType, Tensor] = None,  # new argument for all edges dict
             **kwargs,
     ):
         super(WeightedHGTConv, self).__init__(in_channels, out_channels, metadata, heads, **kwargs)
+
+        self.all_edges_dict = all_edges_dict
+
+        # Initialize learnable edge weights
+        self.edge_weights_dict = torch.nn.ParameterDict()
+
+        for edge_type, edge_indices in self.all_edges_dict.items():
+            edge_type = '__'.join(edge_type)
+            parameter_tensor = torch.nn.Parameter(F.sigmoid(torch.randn((1, len(edge_indices)), requires_grad=True)))
+            self.edge_weights_dict[edge_type] = parameter_tensor
 
     def forward(
             self,
             x_dict: Dict[NodeType, Tensor],
             edge_index_dict: Dict[EdgeType, Adj],
-            edge_weight_dict: Dict[EdgeType, Tensor] = None,  # new edge_weights dict (learnable)
             relevant_edge_weights_indices_dict: Dict[EdgeType, Tensor] = None  # new edge_weights_indices dict
     ) -> Dict[NodeType, Optional[Tensor]]:
         r"""Runs the forward pass of the module.
@@ -67,7 +78,7 @@ class WeightedHGTConv(HGTConv):
             src_offset,
             dst_offset,
             edge_attr_dict=self.p_rel,
-            edge_weight_dict=edge_weight_dict,
+            edge_weight_dict=self.edge_weights_dict,
             relevant_edge_weights_indices_dict=relevant_edge_weights_indices_dict
         )
 
