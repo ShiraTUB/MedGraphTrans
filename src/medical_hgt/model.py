@@ -58,18 +58,18 @@ class Decoder(torch.nn.Module):
 
 
 class Model(torch.nn.Module):
-    def __init__(self, hetero_data, hidden_channels=64):
+    def __init__(self, all_edges_dict, hidden_channels=64):
         super().__init__()
         self.hgt = HGT(hidden_channels=hidden_channels, out_channels=64, num_heads=2, num_layers=1)
         self.decoder = Decoder()
-        self.hetero_data = hetero_data
+        self.all_edges_dict = all_edges_dict
 
         # Initialize learnable edge weights
         self.edge_weights_dict = torch.nn.ParameterDict()
 
-        for edge_type, edge_indices in hetero_data.edge_index_dict.items():
+        for edge_type, edge_indices in all_edges_dict.items():
             edge_type = '__'.join(edge_type)
-            parameter_tensor = torch.nn.Parameter(torch.randn((1, edge_indices.size(1))), requires_grad=True)
+            parameter_tensor = torch.nn.Parameter(torch.randn((1, len(edge_indices)), requires_grad=True))
             self.edge_weights_dict[edge_type] = F.sigmoid(parameter_tensor)
 
     def forward(self, batch_data: HeteroData) -> (torch.Tensor, dict):
@@ -77,7 +77,7 @@ class Model(torch.nn.Module):
 
         # find the relevant indices in the models weights dict
         for edge_type in batch_data.edge_types:
-            relevant_indices = self.hetero_data[edge_type].edge_uid[batch_data[edge_type].edge_uid]
+            relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in batch_data[edge_type].edge_uid])
             edge_type = '__'.join(edge_type)
             relevant_edge_weights_dict[edge_type] = self.edge_weights_dict[edge_type][0][relevant_indices]
 

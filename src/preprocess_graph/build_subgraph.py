@@ -8,6 +8,7 @@ import networkx as nx
 import numpy as np
 import torch_geometric.transforms as T
 from torch_geometric.data import HeteroData
+from typing import Tuple
 
 from config import OPENAI_API_KEY
 from src.utils import meta_relations_dict
@@ -65,24 +66,27 @@ def extract_knowledge_from_kg(question: str, trie: Trie, question_entities_list=
     return extracted_edges, extracted_edge_indices
 
 
-def convert_nx_to_hetero_data(graph: nx.Graph, target_relation=None, edge_uid_offset=0) -> (HeteroData, int):
+def convert_nx_to_hetero_data(graph: nx.Graph, edge_uid_offset=0) -> Tuple[HeteroData, dict, int]:
     """
-    :param graph: nx graph to be transformed into hetero data
-    :param target_relation: relation type for masking
-    :param edge_uid_offset: to keep track of edges in batches
-    :return: the hetero data crated from the graph
 
     Args:
-        continuous_edge_indexing:
+        graph: the nx.graph from which the heteroData  should be created
+        edge_uid_offset: a pointer of the last added edge. Might be used across many transformed graph to keep track across batched/ datasets
+
+    Returns:
+        data: the HeteroData object created from the input graph
+        edge_types_uids_dict: a dictionary of all edge types with the corresponding edge_uids added to the graph (in the format edge_type: edge_uids_list)
+        edge_uid_offset: the updated edge_uid_offset
+
+
     """
+
     data = HeteroData()
 
     node_types_embeddings_dict = {}
     node_types_uids_dict = {}
     edge_types_index_dict = {}
     edge_types_uids_dict = {}
-
-    continuous_edge_indexing = edge_uid_offset > 0
 
     # Iterate over all edges:
     for index, (s, t, edge_attr) in enumerate(graph.edges(data=True)):
@@ -177,47 +181,9 @@ def convert_nx_to_hetero_data(graph: nx.Graph, target_relation=None, edge_uid_of
         # data[e_type].edge_uid = torch.tensor(np.arange(data[e_type].edge_index.size(1)))
         data[e_type].edge_uid = torch.tensor(edge_types_uids_dict[e_type])
 
-        if target_relation is not None:
-            if e_type == target_relation:
-                train_mask, val_mask, test_mask = tvt_edge_split(data[e_type].num_edges)
-                data[e_type].update(
-                    dict(train_mask=train_mask, val_mask=val_mask, test_mask=test_mask))
-
     data = T.ToUndirected()(data)
 
-    if target_relation is not None:
-
-        # Update nodes' masks
-        target_source_type = target_relation[0]
-        target_target_type = target_relation[2]
-
-        source_node_train_mask = torch.zeros(data[target_source_type].num_nodes, dtype=torch.int)
-        source_node_val_mask = torch.zeros(data[target_source_type].num_nodes, dtype=torch.int)
-        source_node_test_mask = torch.zeros(data[target_source_type].num_nodes, dtype=torch.int)
-        target_node_train_mask = torch.zeros(data[target_target_type].num_nodes, dtype=torch.int)
-        target_node_val_mask = torch.zeros(data[target_target_type].num_nodes, dtype=torch.int)
-        target_node_test_mask = torch.zeros(data[target_target_type].num_nodes, dtype=torch.int)
-
-        target_source_train_indices = data[target_relation].edge_index[0][data[target_relation].train_mask.nonzero().squeeze()]
-        target_source_val_indices = data[target_relation].edge_index[0][data[target_relation].val_mask.nonzero().squeeze()]
-        target_source_test_indices = data[target_relation].edge_index[0][data[target_relation].test_mask.nonzero().squeeze()]
-
-        target_target_train_indices = data[target_relation].edge_index[1][data[target_relation].train_mask.nonzero().squeeze()]
-        target_target_val_indices = data[target_relation].edge_index[1][data[target_relation].val_mask.nonzero().squeeze()]
-        target_target_test_indices = data[target_relation].edge_index[1][data[target_relation].test_mask.nonzero().squeeze()]
-
-        source_node_train_mask[target_source_train_indices] = 1
-        source_node_val_mask[target_source_val_indices] = 1
-        source_node_test_mask[target_source_test_indices] = 1
-
-        target_node_train_mask[target_target_train_indices] = 1
-        target_node_val_mask[target_target_val_indices] = 1
-        target_node_test_mask[target_target_test_indices] = 1
-
-        data[target_source_type].update(dict(train_mask=source_node_train_mask, val_mask=source_node_val_mask, test_mask=source_node_test_mask))
-        data[target_target_type].update(dict(train_mask=target_node_train_mask, val_mask=target_node_val_mask, test_mask=target_node_test_mask))
-
-    return data, edge_uid_offset
+    return data, edge_types_uids_dict, edge_uid_offset
 
 
 def initiate_question_graph_dict(question: str, answer_choices: [str], question_entities, answer_entities_dict) -> dict:
@@ -343,10 +309,6 @@ def process_raw_graph_data(graph_data):
         answer_nodes_string_to_int_mapping,
         knowledge_nodes_string_to_int_mapping
     )
-
-    # subgraph = Subgraph(question_node_tensor, answer_nodes_tensor, knowledge_nodes_tensor, question_knowledge_tensor, answer_knowledge_tensor, question_answer_tensor,
-    #                     knowledge_knowledge_tensor)
-    # graph.insert_subgraph(subgraph)
 
     return graph
 

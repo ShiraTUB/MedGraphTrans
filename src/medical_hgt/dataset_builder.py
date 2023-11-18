@@ -4,6 +4,8 @@ import argparse
 import networkx as nx
 import random
 import torch
+
+from itertools import chain
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import HeteroData
 from typing import List, Tuple
@@ -25,8 +27,9 @@ class MedicalQADatasetBuilder:
     def __init__(self, paths_to_dataset: List[str], val_ratio: float = 0.1, test_ratio: float = 0.1, positive_relation_type: Tuple[str, str, str] = ('question', 'question_correct_answer', 'answer'),
                  neg_relation_type: Tuple[str, str, str] = ('question', 'question_wrong_answer', 'answer'), disjoint_train_edges_ratio: float = 0.9, negative_sampling_ratio: int = 3, batch_size: int = 32):
 
-        self.raw_data_list = self.build_data_list(paths_to_dataset)
-        self.processed_data_list = self.process_raw_data_list(self.raw_data_list)
+        self.raw_data_list = self.build_raw_data_list(paths_to_dataset)
+        self.all_edges_dict = {}
+        self.processed_data_list = self.build_processed_data_list()
 
         self.num_val_samples = int(len(self.raw_data_list) * val_ratio)
         self.num_test_samples = int(len(self.raw_data_list) * test_ratio)
@@ -53,10 +56,9 @@ class MedicalQADatasetBuilder:
         self.val_edge_dict = self.find_edges_split(self.val_mini_batches)
 
         self.test_loader = DataLoader(self.processed_test_dataset, batch_size=batch_size)
-        self.test_mini_batched = self.preprocess_batches(self.test_loader, is_train=False, edge_index_uids_dict=self.val_edge_dict)
+        self.test_mini_batches = self.preprocess_batches(self.test_loader, is_train=False, edge_index_uids_dict=self.val_edge_dict)
 
-
-    def build_data_list(self, root_dirs_list: List[str]):
+    def build_raw_data_list(self, root_dirs_list: List[str]):
         data_list = []
 
         for root_dir in root_dirs_list:
@@ -72,13 +74,25 @@ class MedicalQADatasetBuilder:
 
         return data_list
 
-    def process_raw_data_list(self, raw_data_list: List[nx.Graph]):
+    def build_processed_data_list(self):
 
         processed_data_list = []
         edge_uid_offset = 0
-        for graph in raw_data_list:
-            hetero_data, edge_uid_offset = convert_nx_to_hetero_data(graph, edge_uid_offset=edge_uid_offset)
+        for graph in self.raw_data_list:
+            hetero_data, edge_types_uids_dict, edge_uid_offset = convert_nx_to_hetero_data(graph, edge_uid_offset=edge_uid_offset)
             processed_data_list.append(hetero_data)
+            for edge_type, edge_type_uids in edge_types_uids_dict.items():
+                if edge_type not in self.all_edges_dict:
+                    self.all_edges_dict[edge_type] = edge_type_uids
+                else:
+                    self.all_edges_dict[edge_type].append(edge_type_uids)
+
+        rev_types_dict = {}
+        for edge_type, edge_uids_nested_list in self.all_edges_dict.items():
+            self.all_edges_dict[edge_type] = torch.tensor(list(chain.from_iterable([x] if isinstance(x, int) else x for x in edge_uids_nested_list)))
+            rev_types_dict[(edge_type[2], f'rev_{edge_type[1]}', edge_type[0])] = self.all_edges_dict[edge_type]
+
+        self.all_edges_dict.update(rev_types_dict)
 
         return processed_data_list
 
@@ -121,7 +135,8 @@ class MedicalQADatasetBuilder:
 
                 positive_edge_index = batch[self.positive_relation_type].edge_index[:, positive_edge_index_indices]
                 positive_edge_label_index = batch[self.positive_relation_type].edge_index[:, positive_edge_label_index_indices]
-                positive_edge_label = torch.ones((1, positive_edge_label_index.size(1)))
+                labels_length = 1 if positive_edge_label_index_indices.dim() == 0 else len(positive_edge_label_index_indices)
+                positive_edge_label = torch.ones((1, labels_length))
 
             # Find the EdgeStore attributes for positive_relation_type (self.negative_ampler ensures each batch contain all answer possibilities per question)
             negative_edge_index = self.negative_sampler(batch, positive_edge_index[0])
@@ -156,6 +171,9 @@ class MedicalQADatasetBuilder:
     def negative_sampler(self, batch, source_node_indices):
         negative_examples = []
         negative_indices = batch[self.negative_relation_type].edge_index
+
+        if source_node_indices.dim() == 0:
+            source_node_indices = source_node_indices.unsqueeze(0)
 
         for index in source_node_indices:
             negative_example_indices = torch.where(negative_indices[0] == index)[0][:self.negative_sampling_ratio]
@@ -231,8 +249,3 @@ def build_merged_graphs_raw_dataset(graphs_list):
         merged_graph.add_edges_from(graph.edges(data=True))
 
     return merged_graph
-
-
-dataset_builder = MedicalQADatasetBuilder(args.dataset_folders_paths, batch_size=64)
-
-print('end')
