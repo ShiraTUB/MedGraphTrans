@@ -65,17 +65,24 @@ def extract_knowledge_from_kg(question: str, trie: Trie, question_entities_list=
     return extracted_edges, extracted_edge_indices
 
 
-def convert_nx_to_hetero_data(graph: nx.Graph, target_relation=None) -> HeteroData:
+def convert_nx_to_hetero_data(graph: nx.Graph, target_relation=None, edge_uid_offset=0) -> (HeteroData, int):
     """
     :param graph: nx graph to be transformed into hetero data
     :param target_relation: relation type for masking
+    :param edge_uid_offset: to keep track of edges in batches
     :return: the hetero data crated from the graph
+
+    Args:
+        continuous_edge_indexing:
     """
     data = HeteroData()
 
     node_types_embeddings_dict = {}
     node_types_uids_dict = {}
-    edge_types_dict = {}
+    edge_types_index_dict = {}
+    edge_types_uids_dict = {}
+
+    continuous_edge_indexing = edge_uid_offset > 0
 
     # Iterate over all edges:
     for index, (s, t, edge_attr) in enumerate(graph.edges(data=True)):
@@ -131,12 +138,17 @@ def convert_nx_to_hetero_data(graph: nx.Graph, target_relation=None) -> HeteroDa
         else:
             t_node_index = node_types_uids_dict[t_node_type].index(t_uid)
 
-        if relation not in edge_types_dict:
-            edge_types_dict[relation] = []
-            edge_types_dict[relation].append([s_node_index, t_node_index])
+        if relation not in edge_types_index_dict:
+            edge_types_index_dict[relation] = []
+            edge_types_index_dict[relation].append([s_node_index, t_node_index])
+            edge_types_uids_dict[relation] = []
+            edge_types_uids_dict[relation].append(edge_uid_offset)
+            edge_uid_offset += 1
 
-        elif [s_node_index, t_node_index] not in edge_types_dict[relation]:
-            edge_types_dict[relation].append([s_node_index, t_node_index])
+        elif [s_node_index, t_node_index] not in edge_types_index_dict[relation]:
+            edge_types_index_dict[relation].append([s_node_index, t_node_index])
+            edge_types_uids_dict[relation].append(edge_uid_offset)
+            edge_uid_offset += 1
 
     # Iterate over nodes with no neighbors:
     nodes_with_no_neighbors = [graph.nodes[node] for node in graph.nodes() if len(list(graph.neighbors(node))) == 0]
@@ -160,9 +172,10 @@ def convert_nx_to_hetero_data(graph: nx.Graph, target_relation=None) -> HeteroDa
         data[n_type].x = torch.stack(node_types_embeddings_dict[n_type], dim=0).type("torch.FloatTensor")
         data[n_type].node_uid = torch.tensor(node_types_uids_dict[n_type])
 
-    for e_type in edge_types_dict.keys():
-        data[e_type].edge_index = torch.transpose(torch.tensor(edge_types_dict[e_type]), 0, 1)
-        data[e_type].edge_uid = torch.tensor(np.arange(data[e_type].edge_index.size(1)))
+    for e_type in edge_types_index_dict.keys():
+        data[e_type].edge_index = torch.transpose(torch.tensor(edge_types_index_dict[e_type]), 0, 1)
+        # data[e_type].edge_uid = torch.tensor(np.arange(data[e_type].edge_index.size(1)))
+        data[e_type].edge_uid = torch.tensor(edge_types_uids_dict[e_type])
 
         if target_relation is not None:
             if e_type == target_relation:
@@ -204,7 +217,7 @@ def convert_nx_to_hetero_data(graph: nx.Graph, target_relation=None) -> HeteroDa
         data[target_source_type].update(dict(train_mask=source_node_train_mask, val_mask=source_node_val_mask, test_mask=source_node_test_mask))
         data[target_target_type].update(dict(train_mask=target_node_train_mask, val_mask=target_node_val_mask, test_mask=target_node_test_mask))
 
-    return data
+    return data, edge_uid_offset
 
 
 def initiate_question_graph_dict(question: str, answer_choices: [str], question_entities, answer_entities_dict) -> dict:

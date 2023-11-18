@@ -10,7 +10,7 @@ from torch_geometric.loader import DataLoader
 from src.old.model import MedicalQAModel
 from src.old.encoder import MedicalEncoder
 from src.old.decoder import Decoder
-from src.preprocess_graph.dataset_builder import build_dataset
+from src.medical_hgt.dataset_builder import build_dataset
 from src.utils import node_types, meta_relations_dict
 from config import ROOT_DIR
 

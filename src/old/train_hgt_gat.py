@@ -5,7 +5,7 @@ import torch.optim as optim
 from torch_geometric.loader import DataLoader
 
 from config import ROOT_DIR
-from src.preprocess_graph.dataset_builder import build_dataset
+from src.medical_hgt.dataset_builder import build_dataset
 from src.old.hgt_gat_model import HeteroGraphTransformer
 
 parser = argparse.ArgumentParser(description='Training HGT on PrimeKG + Medmcqa')

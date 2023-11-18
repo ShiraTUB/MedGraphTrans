@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from src.medical_hgt.model import Model
 from src.medical_hgt.training import train_model
 from src.medical_hgt.data_loaders import build_link_neighbor_loaders
+from src.medical_hgt.dataset_builder import MedicalQADatasetBuilder
 from config import ROOT_DIR
 
 parser = argparse.ArgumentParser(description='Training HGT on PrimeKG + Medmcqa')
@@ -19,10 +20,12 @@ args = parser.parse_args()
 
 def run_experiment(data, link_neighbor_params, device, runs=2):
     """Runs a multi-trial experiment using the given LinkNeighborLoaderParams."""
+    # todo: instead of calling build_link_neighbor_loaders call MedicalQADatasetBuilder (make necessary adjustments) - loaders = dataset_builder.train_mini_batches, dataset_builder.val_mini_batches, dataset_builder.test_mini_batched
     loaders = build_link_neighbor_loaders(data,
                                           link_neighbor_params.neg_sampling_ratio,
                                           link_neighbor_params.num_neighbors,
                                           link_neighbor_params.batch_size)
+
 
     for i in range(runs):
         file_name = link_neighbor_params.get_file_name() + f'_run{i + 1}.pth'
@@ -49,7 +52,7 @@ class LinkNeighborLoaderParams:
 
 link_neighbor_params_list = [
     # baseline
-    LinkNeighborLoaderParams(neg_sampling_ratio=3.0, num_neighbors=[4, 3, 2, 10, 10, 3], batch_size=128, num_epochs=8),
+    LinkNeighborLoaderParams(neg_sampling_ratio=3.0, num_neighbors=[-1], batch_size=128, num_epochs=8),
     # different batch sizes
     # LinkNeighborLoaderParams(neg_sampling_ratio=2.0, num_neighbors=[20, 10], batch_size=512),
     # LinkNeighborLoaderParams(neg_sampling_ratio=2.0, num_neighbors=[20, 10], batch_size=256),
