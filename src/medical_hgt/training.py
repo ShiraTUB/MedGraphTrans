@@ -6,7 +6,7 @@ import torch
 import numpy as np
 
 from torch import cuda
-from torch.nn import BCEWithLogitsLoss
+import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
 from dataclasses import dataclass
 
@@ -29,15 +29,22 @@ def get_masked(target, batch, split_name):
 
 def evaluate_model(model, split_loaders, split_name, device, frac=1.0):
     """
-    Main model evaluation loop for validation/testing.
+    Args:
+    model (torch.nn.Module): The model to evaluate.
+    split_loaders (dict): A dictionary containing the data loaders for different splits.
+    split_name (str): The name of the split to evaluate (e.g., 'val', 'test').
+    device (torch.device): The device to run the model on.
+    frac (float): Fraction of the dataset to use for evaluation.
 
-    This is almost identical to the equivalent function in the previous Colab,
-    except we calculate the ROC AUC instead of the raw accuracy.
+    Returns:
+    float: The ROC AUC score for the evaluated split.
     """
     model.eval()
 
-    y_true_tensors = []
-    y_pred_tensors = []
+    pos_y_true_tensors = []
+    neg_y_true_tensors = []
+    pos_y_pred_tensors = []
+    neg_y_pred_tensors = []
 
     loader = split_loaders[split_name]
     num_batches = round(frac * len(loader))
@@ -49,22 +56,35 @@ def evaluate_model(model, split_loaders, split_name, device, frac=1.0):
         batch = batch.to(device)
 
         with torch.no_grad():
-            pred = model(batch)
+            pos_pred, neg_pred = model(batch)
 
-            # only evaluate the predictions from the split we care about
-            eval_pred = pred.detach()
-            eval_y = batch["question", "question_correct_answer", "answer"].edge_label.detach()
+            pos_eval_y = batch["question", "question_correct_answer", "answer"].edge_label.squeeze()
+            neg_eval_y = batch["question", "question_wrong_answer", "answer"].edge_label.squeeze()
 
-            y_pred_tensors.append(eval_pred)
-            y_true_tensors.append(eval_y)
+            if pos_eval_y.dim() == 0:
+                pos_eval_y = pos_eval_y.view(1)
+
+            if neg_eval_y.dim() == 0:
+                neg_eval_y = neg_eval_y.view(1)
+
+            pos_y_pred_tensors.append(pos_pred.detach())
+            neg_y_pred_tensors.append(neg_pred.detach())
+            pos_y_true_tensors.append(pos_eval_y.detach())
+            neg_y_true_tensors.append(neg_eval_y.detach())
 
         if batch_num >= num_batches:
             break
 
     model.train()
 
-    pred = torch.cat(y_pred_tensors, dim=0).numpy()
-    true = torch.cat(y_true_tensors, dim=0).numpy()
+    pos_pred = torch.cat(pos_y_pred_tensors, dim=0).numpy()
+    neg_pred = torch.cat(neg_y_pred_tensors, dim=0).numpy()
+    pos_true = torch.cat(pos_y_true_tensors, dim=0).numpy()
+    neg_true = torch.cat(neg_y_true_tensors, dim=0).numpy()
+
+    pred = np.concatenate([pos_pred, neg_pred])
+    true = np.concatenate([pos_true, neg_true])
+    print(model.edge_weights_dict['disease__disease_phenotype_positive__effect/phenotype'])
 
     return roc_auc_score(true, pred)
 
@@ -125,14 +145,35 @@ def get_time():
     return round(time.time())
 
 
+def compute_loss(pos_preds: torch.Tensor, neg_preds: torch.Tensor, pos_labels: torch.Tensor, neg_labels: torch.Tensor) -> torch.Tensor:
+    """
+    Args:
+    pos_preds (torch.Tensor): Predictions for positive links, expected to be logits.
+    neg_preds (torch.Tensor): Predictions for negative links, expected to be logits.
+    pos_labels (torch.Tensor): Ground truth labels for positive links.
+    neg_labels (torch.Tensor): Ground truth labels for negative links.
+
+    Returns:
+    torch.Tensor: The combined binary cross-entropy loss for positive and negative predictions.
+    """
+
+    # Calculate loss for positive predictions
+    pos_loss = F.binary_cross_entropy_with_logits(pos_preds, pos_labels.view(-1).float())
+
+    # Calculate loss for negative predictions
+    neg_loss = F.binary_cross_entropy_with_logits(neg_preds, neg_labels.view(-1).float())
+
+    # Combine the losses
+    total_loss = pos_loss + neg_loss
+
+    return total_loss
+
+
 def train_model(model, split_loaders, device, file_name, num_epochs=30, lr=5e-3):
     model = model.to(device)
     model.train()
 
     opt = torch.optim.Adam(model.parameters(), lr=lr)
-
-    # notice we're using binary classification loss function
-    loss_fn = BCEWithLogitsLoss()
 
     start_time = get_time()
     print(f'start time: {start_time}; will save results to {file_name}')
@@ -144,8 +185,10 @@ def train_model(model, split_loaders, device, file_name, num_epochs=30, lr=5e-3)
         train_start_time = get_time()
 
         train_losses = []
-        y_pred_tensors = []
-        y_true_tensors = []
+        pos_y_pred_tensors = []
+        neg_y_pred_tensors = []
+        pos_y_true_tensors = []
+        neg_y_true_tensors = []
 
         num_batches = len(train_loader)
 
@@ -156,29 +199,42 @@ def train_model(model, split_loaders, device, file_name, num_epochs=30, lr=5e-3)
             print(f'\rEpoch {epoch_num}: batch {batch_num} / {num_batches}', end='')
 
             opt.zero_grad()
-
             batch = batch.to(device)
 
             # internally, the model is applied using all the batch's edges (i.e.,
             # batch.edge_index) but only outputs predictions on edges to be labeled
             # (i.e., batch.edge_label_index).
-            train_pred = model(batch)
+            pos_train_pred, neg_train_pred = model(batch)
 
-            train_y = batch["question", "question_correct_answer", "answer"].edge_label
+            pos_train_y = batch["question", "question_correct_answer", "answer"].edge_label.squeeze()
+            neg_train_y = batch["question", "question_wrong_answer", "answer"].edge_label.squeeze()
 
-            loss = loss_fn(train_pred, train_y)
+            if pos_train_y.dim() == 0:
+                pos_train_y = pos_train_y.view(1)
+
+            if neg_train_y.dim() == 0:
+                neg_train_y = neg_train_y.view(1)
+
+            loss = compute_loss(pos_train_pred, neg_train_pred, pos_train_y, neg_train_y)
             loss.backward()
-
             opt.step()
 
-            y_pred_tensors.append(train_pred.detach())
-            y_true_tensors.append(train_y.detach().long())
+            pos_y_pred_tensors.append(pos_train_pred.detach())
+            neg_y_pred_tensors.append(neg_train_pred.detach())
+            pos_y_true_tensors.append(pos_train_y.detach().long())
+            neg_y_true_tensors.append(neg_train_y.detach().long())
 
             train_losses.append(loss.detach().item())
 
         train_end_time = get_time()
-        pred = torch.cat(y_pred_tensors, dim=0).numpy()
-        true = torch.cat(y_true_tensors, dim=0).numpy()
+
+        pos_pred = torch.cat(pos_y_pred_tensors, dim=0).numpy()
+        neg_pred = torch.cat(neg_y_pred_tensors, dim=0).numpy()
+        pos_true = torch.cat(pos_y_true_tensors, dim=0).numpy()
+        neg_true = torch.cat(neg_y_true_tensors, dim=0).numpy()
+
+        pred = np.concatenate([pos_pred, neg_pred])
+        true = np.concatenate([pos_true, neg_true])
 
         # the training ROC AUC is computed using all the predictions (and ground
         # truth labels) made during the entire epoch, across all batches. Note that

@@ -60,7 +60,7 @@ class LinkNeighborLoaderParams:
 
 link_neighbor_params_list = [
     # baseline
-    LinkNeighborLoaderParams(neg_sampling_ratio=3.0, num_neighbors=[-1], batch_size=64, num_epochs=8),
+    LinkNeighborLoaderParams(neg_sampling_ratio=3.0, num_neighbors=[-1], batch_size=64, num_epochs=100),
     # different batch sizes
     # LinkNeighborLoaderParams(neg_sampling_ratio=2.0, num_neighbors=[20, 10], batch_size=512),
     # LinkNeighborLoaderParams(neg_sampling_ratio=2.0, num_neighbors=[20, 10], batch_size=256),

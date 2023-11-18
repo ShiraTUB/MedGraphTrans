@@ -1,31 +1,29 @@
 import os.path
 import pickle
-import argparse
-import networkx as nx
 import random
 import torch
+import networkx as nx
 
 from itertools import chain
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import HeteroData
 from typing import List, Tuple
-from torch_geometric.data import Dataset
 
 from src.preprocess_graph.build_subgraph import convert_nx_to_hetero_data
 from config import ROOT_DIR
 
-parser = argparse.ArgumentParser(description='Building train, val and test DataLoaders from the MedQA dataset')
-parser.add_argument('--dataset_folders_paths', type=List[str], default=['datasets/raw_graph_dataset_with_negative_edges/train', 'datasets/raw_graph_dataset_with_negative_edges/validation'],
-                    help='Paths to the folders containing raw graphs datasets')
-parser.add_argument('--experiment_output_path', type=str, default='experiments', help='Path of the target experiments folder')
-
-args = parser.parse_args()
-
 
 class MedicalQADatasetBuilder:
 
-    def __init__(self, paths_to_dataset: List[str], val_ratio: float = 0.1, test_ratio: float = 0.1, positive_relation_type: Tuple[str, str, str] = ('question', 'question_correct_answer', 'answer'),
-                 neg_relation_type: Tuple[str, str, str] = ('question', 'question_wrong_answer', 'answer'), disjoint_train_edges_ratio: float = 0.9, negative_sampling_ratio: int = 3, batch_size: int = 32):
+    def __init__(self,
+                 paths_to_dataset: List[str],
+                 val_ratio: float = 0.1,
+                 test_ratio: float = 0.1,
+                 positive_relation_type: Tuple[str, str, str] = ('question', 'question_correct_answer', 'answer'),
+                 neg_relation_type: Tuple[str, str, str] = ('question', 'question_wrong_answer', 'answer'),
+                 disjoint_train_edges_ratio: float = 0.9,
+                 negative_sampling_ratio: int = 3,
+                 batch_size: int = 32):
 
         self.raw_data_list = self.build_raw_data_list(paths_to_dataset)
         self.all_edges_dict = {}
@@ -78,9 +76,11 @@ class MedicalQADatasetBuilder:
 
         processed_data_list = []
         edge_uid_offset = 0
+
         for graph in self.raw_data_list:
             hetero_data, edge_types_uids_dict, edge_uid_offset = convert_nx_to_hetero_data(graph, edge_uid_offset=edge_uid_offset)
             processed_data_list.append(hetero_data)
+
             for edge_type, edge_type_uids in edge_types_uids_dict.items():
                 if edge_type not in self.all_edges_dict:
                     self.all_edges_dict[edge_type] = edge_type_uids
@@ -88,6 +88,7 @@ class MedicalQADatasetBuilder:
                     self.all_edges_dict[edge_type].append(edge_type_uids)
 
         rev_types_dict = {}
+
         for edge_type, edge_uids_nested_list in self.all_edges_dict.items():
             self.all_edges_dict[edge_type] = torch.tensor(list(chain.from_iterable([x] if isinstance(x, int) else x for x in edge_uids_nested_list)))
             rev_types_dict[(edge_type[2], f'rev_{edge_type[1]}', edge_type[0])] = self.all_edges_dict[edge_type]
@@ -175,8 +176,6 @@ class MedicalQADatasetBuilder:
             batch[rev_negative_relation_type].edge_index_uid = negative_edge_index_uids
             batch[rev_negative_relation_type].edge_label_uid = negative_edge_label_uids
 
-
-
             processed_batches.append(batch)
 
         return processed_batches
@@ -205,6 +204,7 @@ class MedicalQADatasetBuilder:
         # Find all indices used as edge_index
         for value in edge_index_uids_dict[self.positive_relation_type]:
             index = torch.where(batch[self.positive_relation_type].edge_uid == int(value))[0]
+
             if index.numel() != 0:
                 edge_index_indices.append(int(index))
 
@@ -221,10 +221,13 @@ class MedicalQADatasetBuilder:
     def find_edges_split(self, batches_list):
         # Create edge_index_dict
         edge_index_uids_dict = {}
+
         for batch in batches_list:
             for edge_type in batch.edge_types:
+
                 if edge_type not in edge_index_uids_dict:
                     edge_index_uids_dict[edge_type] = []
+
                 edge_index_uids_dict[edge_type].append(batch[edge_type].edge_uid)
 
         for edge_type in edge_index_uids_dict.keys():
@@ -235,7 +238,9 @@ class MedicalQADatasetBuilder:
     def ensure_batch_uniqueness(self, batch):
         for node_type in batch.node_types:
             edges_dict = {}
+
             for edge_type in batch.edge_types:
+
                 if edge_type[0] == node_type:
                     edges_dict[edge_type] = 0
                 elif edge_type[2] == node_type:

@@ -5,12 +5,22 @@ from torch_geometric.nn import Linear
 from torch_geometric.data import HeteroData
 
 from src.utils import node_types, metadata
-from weighted_hgt_conv import WeightedHGTConv
+from src.medical_hgt.weighted_hgt_conv import WeightedHGTConv
 
 
 class HGT(torch.nn.Module):
-    def __init__(self, hidden_channels, out_channels, num_heads, num_layers):
+    def __init__(self, hidden_channels, out_channels, num_heads, num_layers, all_edges_dict):
         super().__init__()
+
+        self.all_edges_dict = all_edges_dict
+
+        # Initialize learnable edge weights
+        self.edge_weights_dict = torch.nn.ParameterDict()
+
+        for edge_type, edge_indices in all_edges_dict.items():
+            edge_type = '__'.join(edge_type)
+            parameter_tensor = torch.nn.Parameter(F.sigmoid(torch.randn((1, len(edge_indices)), requires_grad=True)))
+            self.edge_weights_dict[edge_type] = parameter_tensor
 
         self.lin_dict = torch.nn.ModuleDict()
 
@@ -25,7 +35,7 @@ class HGT(torch.nn.Module):
 
         self.lin = Linear(hidden_channels, out_channels)
 
-    def forward(self, data, edge_weights_dict):
+    def forward(self, data):
         x_dict = {node_type: self.lin_dict[node_type](x).relu_() for node_type, x in data.x_dict.items()}
 
         # # include edges weights before passing to hgt: apply weight to all source nodes for message passing
@@ -40,60 +50,75 @@ class HGT(torch.nn.Module):
         #     edge_type_weights = edge_weights[edge_type[1]].squeeze()
         #     weighted_x_dict[source_node_type][source_nodes_indices] *= edge_type_weights.unsqueeze(1).repeat(1, weighted_x_dict[source_node_type].size(1))
 
+        relevant_edge_weights_indices_dict = {}
+
+        # find the relevant indices in the models weights dict
+        for edge_type in data.edge_types:
+            if hasattr(data[edge_type], "edge_index_uid"):
+                relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in data[edge_type].edge_index_uid])
+            else:
+                relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in data[edge_type].edge_uid])
+
+            edge_type = '__'.join(edge_type)
+            relevant_edge_weights_indices_dict[edge_type] = relevant_indices
+
         for conv in self.convs:
-            x_dict = conv(x_dict, data.edge_index_dict, edge_weights_dict)
+            x_dict = conv(x_dict, data.edge_index_dict, self.edge_weights_dict, relevant_edge_weights_indices_dict)
 
         return x_dict
 
 
 # Our decoder applies the dot-product between source and destination node embeddings to derive edge-level predictions:
 class Decoder(torch.nn.Module):
-    def forward(self, x_question: torch.Tensor, x_answer: torch.Tensor, edge_label_index: torch.Tensor) -> torch.Tensor:
-        # Convert node embeddings to edge-level representations:
-        edge_feat_question = x_question[edge_label_index[0]]
-        edge_feat_answer = x_answer[edge_label_index[1]]
+    def forward(self, x_question: torch.Tensor, x_answer: torch.Tensor, pos_edge_label_index: torch.Tensor, neg_edge_label_index: torch.Tensor) -> (torch.Tensor, torch.Tensor):
+        """
+        Args:
+        x_question (torch.Tensor): Embeddings of 'question' nodes.
+        x_answer (torch.Tensor): Embeddings of 'answer' nodes.
+        pos_edge_label_index (torch.Tensor): Indices of positive edges (edges that exist).
+        neg_edge_label_index (torch.Tensor): Indices of negative edges (edges that do not exist).
 
-        # Apply dot-product to get a prediction per supervision edge:
-        return F.sigmoid((edge_feat_question * edge_feat_answer).sum(dim=-1))
+        Returns:
+        tuple: A tuple containing two tensors (pos_pred, neg_pred) representing the predicted probabilities
+               for positive and negative edges, respectively.
+        """
+
+        # Convert node embeddings to edge-level representations:
+        pos_edge_feat_question = x_question[pos_edge_label_index[0]]
+        pos_edge_feat_answer = x_answer[pos_edge_label_index[1]]
+
+        pos_pred = F.sigmoid((pos_edge_feat_question * pos_edge_feat_answer).sum(dim=-1))
+
+        if pos_pred.dim() == 0:
+            pos_pred = pos_pred.view(1)
+
+        neg_edge_feat_question = x_question[neg_edge_label_index[0]]
+        neg_edge_feat_answer = x_answer[neg_edge_label_index[1]]
+
+        neg_pred = F.sigmoid((neg_edge_feat_question * neg_edge_feat_answer).sum(dim=-1))
+
+        if neg_pred.dim() == 0:
+            neg_pred = neg_pred.view(1)
+
+        return pos_pred, neg_pred
 
 
 class Model(torch.nn.Module):
     def __init__(self, all_edges_dict, hidden_channels=64):
         super().__init__()
-        self.hgt = HGT(hidden_channels=hidden_channels, out_channels=64, num_heads=2, num_layers=1)
+        self.hgt = HGT(hidden_channels=hidden_channels, out_channels=64, num_heads=2, num_layers=1, all_edges_dict=all_edges_dict)
         self.decoder = Decoder()
-        self.all_edges_dict = all_edges_dict
+        self.edge_weights_dict = self.hgt.edge_weights_dict
 
-        # Initialize learnable edge weights
-        self.edge_weights_dict = torch.nn.ParameterDict()
+    def forward(self, batch_data: HeteroData) -> (torch.Tensor, torch.Tensor):
 
-        for edge_type, edge_indices in all_edges_dict.items():
-            edge_type = '__'.join(edge_type)
-            parameter_tensor = torch.nn.Parameter(torch.randn((1, len(edge_indices)), requires_grad=True))
-            self.edge_weights_dict[edge_type] = F.sigmoid(parameter_tensor)
+        weighted_z_dict = self.hgt(batch_data)
 
-    def forward(self, batch_data: HeteroData) -> (torch.Tensor, dict):
-        relevant_edge_weights_dict = {}
-
-        # find the relevant indices in the models weights dict
-        for edge_type in batch_data.edge_types:
-            if hasattr(batch_data[edge_type], "edge_index_uid"):
-                relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in batch_data[edge_type].edge_index_uid])
-            else:
-                relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in batch_data[edge_type].edge_uid])
-            edge_type = '__'.join(edge_type)
-            relevant_edge_weights_dict[edge_type] = self.edge_weights_dict[edge_type][0][relevant_indices]
-
-        weighted_z_dict = self.hgt(batch_data, relevant_edge_weights_dict)
-
-        pred = self.decoder(
+        pos_pred, neg_pred = self.decoder(
             weighted_z_dict["question"],
             weighted_z_dict["answer"],
             batch_data["question", "question_correct_answer", "answer"].edge_label_index,
+            batch_data["question", "question_wrong_answer", "answer"].edge_label_index,
         )
 
-        # Make sure edges weights are between 0 and 1
-        # for edge_type in self.edge_weights_dict.keys():
-        #     self.edge_weights_dict[edge_type].data = self.sigmoid(self.edge_weights_dict[edge_type].data)
-
-        return pred
+        return pos_pred, neg_pred
