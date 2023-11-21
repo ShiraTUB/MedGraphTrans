@@ -104,7 +104,7 @@ class Trie(object):
         the trie with that prefix, sort the words by the number of
         times they have been inserted
 
-        The parameter seen_list can be used to avoid cycles when traversing through a graph.
+        Set avoid_cycles=True for avoiding cycles when traversing through a graph.
         """
         # Use a variable within the class to keep all possible outputs
         # As there can be more than one word with such prefix
@@ -116,7 +116,7 @@ class Trie(object):
                 node = node.children[char]
             else:
                 # cannot found the prefix, return empty list
-                return [], []
+                return [], [], []
 
         # return only edges and embeddings of new triples (avoid cycles in graph)
         edges, embeddings, node_indices = [], [], []
@@ -131,6 +131,7 @@ class Trie(object):
         else:
             edges = node.edges
             embeddings = node.embedding
+            node_indices = node.edges_indices
 
         return edges, embeddings, node_indices
 
