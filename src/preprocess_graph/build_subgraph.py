@@ -66,7 +66,7 @@ def extract_knowledge_from_kg(question: str, trie: Trie, question_entities_list=
     return extracted_edges, extracted_edge_indices
 
 
-def convert_nx_to_hetero_data(graph: nx.Graph, edge_uid_offset=0) -> Tuple[HeteroData, dict, int]:
+def convert_nx_to_hetero_data(graph: nx.Graph, edge_uid_offset=0) -> Tuple[HeteroData, int]:
     """
 
     Args:
@@ -183,7 +183,7 @@ def convert_nx_to_hetero_data(graph: nx.Graph, edge_uid_offset=0) -> Tuple[Heter
 
     data = T.ToUndirected()(data)
 
-    return data, edge_types_uids_dict, edge_uid_offset
+    return data, edge_uid_offset
 
 
 def initiate_question_graph_dict(question: str, answer_choices: [str], question_entities, answer_entities_dict) -> dict:

@@ -78,14 +78,14 @@ class MedicalQADatasetBuilder:
         edge_uid_offset = 0
 
         for graph in self.raw_data_list:
-            hetero_data, edge_types_uids_dict, edge_uid_offset = convert_nx_to_hetero_data(graph, edge_uid_offset=edge_uid_offset)
+            hetero_data, edge_uid_offset = convert_nx_to_hetero_data(graph, edge_uid_offset=edge_uid_offset)
             processed_data_list.append(hetero_data)
 
-            for edge_type, edge_type_uids in edge_types_uids_dict.items():
+            for edge_type in hetero_data.edge_types():
                 if edge_type not in self.all_edges_dict:
-                    self.all_edges_dict[edge_type] = edge_type_uids
+                    self.all_edges_dict[edge_type] = hetero_data[edge_type].edge_uid
                 else:
-                    self.all_edges_dict[edge_type].append(edge_type_uids)
+                    self.all_edges_dict[edge_type].append(hetero_data[edge_type].edge_uid)
 
         rev_types_dict = {}
 
