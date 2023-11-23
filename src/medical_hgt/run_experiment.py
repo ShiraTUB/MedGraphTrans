@@ -17,6 +17,7 @@ parser.add_argument('--dataset_path', type=str, default='datasets/merged_hetero_
 parser.add_argument('--dataset_folders_paths', type=List[str], default=['datasets/raw_graph_dataset_with_negative_edges/train', 'datasets/raw_graph_dataset_with_negative_edges/validation'],
                     help='Paths to the folders containing raw graphs datasets')
 parser.add_argument('--experiment_output_path', type=str, default='experiments', help='Path of the target experiments folder')
+parser.add_argument('--prime_kg_dataset', type=str, default='datasets/primeKG_nx_medium.pickle', help='PrimeKG pickle path')
 
 args = parser.parse_args()
 
@@ -38,7 +39,7 @@ def run_experiment(link_neighbor_params, device, runs=2):
     for i in range(runs):
         file_name = link_neighbor_params.get_file_name() + f'_run{i + 1}.pth'
         model = Model(all_edges_dict, hidden_channels=64)
-        train_model(model, loaders, device, file_name, num_epochs=link_neighbor_params.num_epochs)
+        train_model(model, loaders, device, file_name, num_epochs=link_neighbor_params.num_epochs, prime_kg=args.prime_kg_dataset)
 
 
 @dataclass(frozen=True)

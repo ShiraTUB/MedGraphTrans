@@ -81,9 +81,9 @@ class MedicalQADatasetBuilder:
             hetero_data, edge_uid_offset = convert_nx_to_hetero_data(graph, edge_uid_offset=edge_uid_offset)
             processed_data_list.append(hetero_data)
 
-            for edge_type in hetero_data.edge_types():
+            for edge_type in hetero_data.edge_types:
                 if edge_type not in self.all_edges_dict:
-                    self.all_edges_dict[edge_type] = hetero_data[edge_type].edge_uid
+                    self.all_edges_dict[edge_type] = [hetero_data[edge_type].edge_uid]
                 else:
                     self.all_edges_dict[edge_type].append(hetero_data[edge_type].edge_uid)
 
@@ -91,7 +91,7 @@ class MedicalQADatasetBuilder:
 
         for edge_type, edge_uids_nested_list in self.all_edges_dict.items():
             self.all_edges_dict[edge_type] = torch.tensor(list(chain.from_iterable([x] if isinstance(x, int) else x for x in edge_uids_nested_list)))
-            rev_types_dict[(edge_type[2], f'rev_{edge_type[1]}', edge_type[0])] = self.all_edges_dict[edge_type]
+            # rev_types_dict[(edge_type[2], f'rev_{edge_type[1]}', edge_type[0])] = self.all_edges_dict[edge_type]
 
         self.all_edges_dict.update(rev_types_dict)
 

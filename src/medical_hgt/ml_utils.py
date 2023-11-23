@@ -1,3 +1,4 @@
+import networkx as nx
 import torch
 from torch import Tensor
 from torch_geometric.data import HeteroData
@@ -206,12 +207,17 @@ def construct_bipartite_edge_index(
 
         # Handle edge weights
         if edge_weight_dict is not None and '__'.join(edge_type) in edge_weight_dict:
-            edge_weight = edge_weight_dict['__'.join(edge_type)][0][relevant_edge_weights_indices_dict['__'.join(edge_type)]]
+            # edge_weight = edge_weight_dict['__'.join(edge_type)][0][relevant_edge_weights_indices_dict['__'.join(edge_type)]]
 
-            if edge_weight.size(0) != edge_index.size(1):
-                edge_weight = edge_weight.expand(edge_index.size(1), -1)
+            index = relevant_edge_weights_indices_dict['__'.join(edge_type)]
+            selected_edge_weight = torch.index_select(
+                edge_weight_dict['__'.join(edge_type)][0], 0, index
+            )
 
-            edge_weights.append(edge_weight)
+            # if edge_weight.size(0) != edge_index.size(1):
+            #     edge_weight = edge_weight.expand(edge_index.size(1), -1)
+
+            edge_weights.append(selected_edge_weight)
 
     edge_index = torch.cat(edge_indices, dim=1)
 
@@ -235,3 +241,35 @@ def construct_bipartite_edge_index(
         )
 
     return edge_index, edge_attr, edge_weight  # Return edge weights as well
+
+
+def decode_edge_weights(edge_weights_dict: dict, edge_index_dict: dict, all_edges_dict: dict, prime_kg: nx.Graph, relevancy_threshold: float = 0.7):
+    # todo WIP
+    for edge_type, edge_type_weights in edge_weights_dict.items():
+        relevant_edges_indices = torch.where(edge_type_weights.squeeze() >= relevancy_threshold)[0]
+        relevant_edges_uid = all_edges_dict[tuple(edge_type.split('__'))][relevant_edges_indices]
+        relevant_edges = edge_index_dict[relevant_edges_indices]
+        relevant_source_node_indices, relevant_target_node_indices = relevant_edges[0], relevant_edges[1]
+
+        relevant_edges = [prime_kg.edges[s, t] for s, t in zip(relevant_source_node_indices, relevant_target_node_indices)]
+
+        return relevant_edges
+
+
+def compute_weight(node_type: str, node_index: int, edge_index_dict: dict, edge_weights_dict: dict):
+    weights = []
+    edge_types = set([edge_type for edge_type in edge_weights_dict.keys() if edge_type.split('__')[-1] == node_type])
+    for edge_type in edge_types:
+        relevant_indices = torch.where(edge_index_dict[tuple(edge_type.split('__'))][1] == node_index)[0]
+        selected_edge_weight = torch.index_select(
+            edge_weights_dict[edge_type], 0, relevant_indices
+        )
+        for w in selected_edge_weight:
+            if w.numel() > 0:
+                if bool(w) != 0:
+                    weights.append(w)
+
+    if len(weights) > 0:
+        return torch.prod(torch.stack(weights, dim=0))
+    else:
+        return 1

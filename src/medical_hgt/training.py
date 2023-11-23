@@ -10,6 +10,8 @@ import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
 from dataclasses import dataclass
 
+from ml_utils import decode_edge_weights
+
 
 def free_memory():
     """Clears the GPU cache and triggers garbage collection, to reduce OOMs."""
@@ -27,7 +29,7 @@ def get_masked(target, batch, split_name):
     return target if mask_name not in batch else target[batch[mask_name]]
 
 
-def evaluate_model(model, split_loaders, split_name, device, frac=1.0):
+def evaluate_model(model, split_loaders, split_name, device, prime_kg, frac=1.0):
     """
     Args:
     model (torch.nn.Module): The model to evaluate.
@@ -58,6 +60,8 @@ def evaluate_model(model, split_loaders, split_name, device, frac=1.0):
         with torch.no_grad():
             pos_pred, neg_pred = model(batch)
 
+            most_relevant_edges = decode_edge_weights(model.edge_weights_dict, batch.edge_index_dict, prime_kg)
+
             pos_eval_y = batch["question", "question_correct_answer", "answer"].edge_label.squeeze()
             neg_eval_y = batch["question", "question_wrong_answer", "answer"].edge_label.squeeze()
 
@@ -84,7 +88,6 @@ def evaluate_model(model, split_loaders, split_name, device, frac=1.0):
 
     pred = np.concatenate([pos_pred, neg_pred])
     true = np.concatenate([pos_true, neg_true])
-    print(model.edge_weights_dict['disease__disease_phenotype_positive__effect/phenotype'])
 
     return roc_auc_score(true, pred)
 
@@ -164,12 +167,12 @@ def compute_loss(pos_preds: torch.Tensor, neg_preds: torch.Tensor, pos_labels: t
     neg_loss = F.binary_cross_entropy_with_logits(neg_preds, neg_labels.view(-1).float())
 
     # Combine the losses
-    total_loss = pos_loss + neg_loss
+    total_loss = pos_loss + (neg_loss / 3)
 
     return total_loss
 
 
-def train_model(model, split_loaders, device, file_name, num_epochs=30, lr=5e-3):
+def train_model(model, split_loaders, device, file_name, prime_kg, num_epochs=30, lr=0.1):
     model = model.to(device)
     model.train()
 
@@ -215,9 +218,24 @@ def train_model(model, split_loaders, device, file_name, num_epochs=30, lr=5e-3)
             if neg_train_y.dim() == 0:
                 neg_train_y = neg_train_y.view(1)
 
+            # print(model.edge_weights_dict['question__question_correct_answer__answer'])
             loss = compute_loss(pos_train_pred, neg_train_pred, pos_train_y, neg_train_y)
             loss.backward()
             opt.step()
+
+            # Retrieve learned weights from previous batch
+            for edge_type in model.edge_weights_dict.keys():
+                if edge_type in model.selected_weights_dict:
+                    model.edge_weights_dict[edge_type][model.relevant_edge_indices_dict[edge_type]] = model.selected_weights_dict[edge_type]
+                    del model.relevant_edge_indices_dict[edge_type]
+                    del model.selected_weights_dict[edge_type]
+
+            # for edge_type, edge_indices in model.hgt.relevant_edge_weights_indices_dict.items():
+            #     if edge_type in model.relevant_weights_dict:
+            #         for i, weight_index in enumerate(edge_indices):
+            #             temp = model.edge_weights_dict[edge_type][0].clone()
+            #             temp[weight_index] = model.relevant_weights_dict[edge_type][i][0]
+            #             model.edge_weights_dict[edge_type][0] = temp
 
             pos_y_pred_tensors.append(pos_train_pred.detach())
             neg_y_pred_tensors.append(neg_train_pred.detach())
@@ -245,7 +263,7 @@ def train_model(model, split_loaders, device, file_name, num_epochs=30, lr=5e-3)
 
         # The validation ROC AUC is computed by running through the validation set
         # at the end of every epoch.
-        val_acc = evaluate_model(model, split_loaders, 'val', device)
+        val_acc = evaluate_model(model, split_loaders, 'val', device, prime_kg=prime_kg)
 
         epoch_result = EpochResult(
             epoch_num=epoch_num,

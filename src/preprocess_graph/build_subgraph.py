@@ -70,7 +70,7 @@ def convert_nx_to_hetero_data(graph: nx.Graph, edge_uid_offset=0) -> Tuple[Heter
     """
 
     Args:
-        graph: the nx.graph from which the heteroData  should be created
+        graph: the nx.Graph from which the heteroData  should be created
         edge_uid_offset: a pointer of the last added edge. Might be used across many transformed graph to keep track across batched/ datasets
 
     Returns:
@@ -181,7 +181,7 @@ def convert_nx_to_hetero_data(graph: nx.Graph, edge_uid_offset=0) -> Tuple[Heter
         # data[e_type].edge_uid = torch.tensor(np.arange(data[e_type].edge_index.size(1)))
         data[e_type].edge_uid = torch.tensor(edge_types_uids_dict[e_type])
 
-    data = T.ToUndirected()(data)
+    data = T.ToUndirected(merge=False)(data)
 
     return data, edge_uid_offset
 

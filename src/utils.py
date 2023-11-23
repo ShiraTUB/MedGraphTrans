@@ -36,11 +36,13 @@ metadata = (['question', 'drug', 'disease', 'effect/phenotype', 'gene/protein', 
              ('effect/phenotype', 'phenotype_protein', 'gene/protein'),
              ('gene/protein', 'rev_phenotype_protein', 'effect/phenotype'),
              ('effect/phenotype', 'phenotype_phenotype', 'effect/phenotype'),
+             ('effect/phenotype', 'rev_phenotype_phenotype', 'effect/phenotype'),
              ('disease', 'disease_phenotype_positive', 'effect/phenotype'),
              ('effect/phenotype', 'rev_disease_phenotype_positive', 'disease'),
              ('disease', "disease_protein", 'gene/protein'),
              ('gene/protein', "rev_disease_protein", 'disease'),
              ('disease', 'disease_disease', 'disease'),
+             ('disease', 'rev_disease_disease', 'disease'),
              ('drug', 'drug_effect', 'effect/phenotype'),
              ('effect/phenotype', 'rev_drug_effect', 'drug'),
              ("question", "question_drug", "drug"),
@@ -63,6 +65,7 @@ metadata = (['question', 'drug', 'disease', 'effect/phenotype', 'gene/protein', 
              ("effect/phenotype", "rev_answer_effect/phenotype", 'answer'),
              ("answer", "answer_gene/protein", 'gene/protein'),
              ("gene/protein", "rev_answer_gene/protein", 'answer')])
+
 
 ###
 # old version
