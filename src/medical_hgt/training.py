@@ -218,24 +218,9 @@ def train_model(model, split_loaders, device, file_name, prime_kg, num_epochs=30
             if neg_train_y.dim() == 0:
                 neg_train_y = neg_train_y.view(1)
 
-            # print(model.edge_weights_dict['question__question_correct_answer__answer'])
             loss = compute_loss(pos_train_pred, neg_train_pred, pos_train_y, neg_train_y)
             loss.backward()
             opt.step()
-
-            # Retrieve learned weights from previous batch
-            for edge_type in model.edge_weights_dict.keys():
-                if edge_type in model.selected_weights_dict:
-                    model.edge_weights_dict[edge_type][model.relevant_edge_indices_dict[edge_type]] = model.selected_weights_dict[edge_type]
-                    del model.relevant_edge_indices_dict[edge_type]
-                    del model.selected_weights_dict[edge_type]
-
-            # for edge_type, edge_indices in model.hgt.relevant_edge_weights_indices_dict.items():
-            #     if edge_type in model.relevant_weights_dict:
-            #         for i, weight_index in enumerate(edge_indices):
-            #             temp = model.edge_weights_dict[edge_type][0].clone()
-            #             temp[weight_index] = model.relevant_weights_dict[edge_type][i][0]
-            #             model.edge_weights_dict[edge_type][0] = temp
 
             pos_y_pred_tensors.append(pos_train_pred.detach())
             neg_y_pred_tensors.append(neg_train_pred.detach())

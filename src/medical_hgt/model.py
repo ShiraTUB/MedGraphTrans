@@ -9,8 +9,10 @@ from src.medical_hgt.weighted_hgt_conv import WeightedHGTConv
 
 
 class HGT(torch.nn.Module):
-    def __init__(self, hidden_channels, out_channels, num_heads, num_layers):
+    def __init__(self, hidden_channels, out_channels, num_heads, num_layers, all_edges_dict):
         super().__init__()
+
+        self.all_edges_dict = all_edges_dict
 
         self.lin_dict = torch.nn.ModuleDict()
 
@@ -20,12 +22,13 @@ class HGT(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
 
         for _ in range(num_layers):
-            conv = WeightedHGTConv(hidden_channels, hidden_channels, metadata, num_heads, group='sum')
+            conv = WeightedHGTConv(hidden_channels, hidden_channels, metadata, num_heads, all_edges_dict, group='sum')
+            self.edge_weights_dict = conv.edge_weights_dict
             self.convs.append(conv)
 
         self.lin = Linear(hidden_channels, out_channels)
 
-    def forward(self, data, edge_weights_dict):
+    def forward(self, data):
         x_dict = {node_type: self.lin_dict[node_type](x).relu_() for node_type, x in data.x_dict.items()}
 
         # # include edges weights before passing to hgt: apply weight to all source nodes for message passing
@@ -40,8 +43,20 @@ class HGT(torch.nn.Module):
         #     edge_type_weights = edge_weights[edge_type[1]].squeeze()
         #     weighted_x_dict[source_node_type][source_nodes_indices] *= edge_type_weights.unsqueeze(1).repeat(1, weighted_x_dict[source_node_type].size(1))
 
+        relevant_edge_weights_indices_dict = {}
+
+        # find the relevant indices in the models weights dict
+        for edge_type in data.edge_types:
+            if hasattr(data[edge_type], "edge_index_uid"):
+                relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in data[edge_type].edge_index_uid])
+            else:
+                relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in data[edge_type].edge_uid])
+
+            edge_type = '__'.join(edge_type)
+            relevant_edge_weights_indices_dict[edge_type] = relevant_indices
+
         for conv in self.convs:
-            x_dict = conv(x_dict, data.edge_index_dict, edge_weights_dict)
+            x_dict = conv(x_dict, data.edge_index_dict, relevant_edge_weights_indices_dict)
 
         return x_dict
 
@@ -84,42 +99,13 @@ class Decoder(torch.nn.Module):
 class Model(torch.nn.Module):
     def __init__(self, all_edges_dict, hidden_channels=64):
         super().__init__()
-        self.hgt = HGT(hidden_channels=hidden_channels, out_channels=64, num_heads=2, num_layers=1)
+        self.hgt = HGT(hidden_channels=hidden_channels, out_channels=64, num_heads=2, num_layers=1, all_edges_dict=all_edges_dict)
         self.decoder = Decoder()
-        # self.edge_weights_dict = self.hgt.edge_weights_dict
-        # self.relevant_weights_dict = self.hgt.relevant_weights_dict
-        # Initialize learnable edge weights
-        self.edge_weights_dict = {}
-        self.relevant_edge_indices_dict = {}
-        self.selected_weights_dict = torch.nn.ParameterDict()
-        self.all_edges_dict = all_edges_dict
-
-        for edge_type, edge_indices in all_edges_dict.items():
-            edge_type = '__'.join(edge_type)
-            parameter_tensor = F.sigmoid(torch.randn(len(edge_indices)))
-            self.edge_weights_dict[edge_type] = parameter_tensor
+        self.edge_weights_dict = self.hgt.edge_weights_dict
 
     def forward(self, batch_data: HeteroData) -> (torch.Tensor, torch.Tensor):
 
-        # relevant_weights_dict = {}
-
-        # find the relevant indices in the models weights dict
-        for edge_type in batch_data.edge_types:
-            if hasattr(batch_data[edge_type], "edge_index_uid"):
-                relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in batch_data[edge_type].edge_index_uid])
-            else:
-                relevant_indices = torch.tensor([torch.where(self.all_edges_dict[edge_type] == x)[0] for x in batch_data[edge_type].edge_uid])
-
-            edge_type = '__'.join(edge_type)
-            self.relevant_edge_indices_dict[edge_type] = relevant_indices
-
-            selected_edge_weight = torch.index_select(
-                self.edge_weights_dict[edge_type], 0, relevant_indices
-            )
-
-            self.selected_weights_dict[edge_type] = torch.nn.Parameter(selected_edge_weight, requires_grad=True)
-
-        weighted_z_dict = self.hgt(batch_data, self.selected_weights_dict)
+        weighted_z_dict = self.hgt(batch_data)
 
         pos_pred, neg_pred = self.decoder(
             weighted_z_dict["question"],

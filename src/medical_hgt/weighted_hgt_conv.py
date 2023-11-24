@@ -19,15 +19,26 @@ class WeightedHGTConv(HGTConv):
             out_channels: int,
             metadata: Metadata,
             heads: int = 1,
+            all_edges_dict: Dict[EdgeType, Tensor] = None,  # new argument for all edges dict
             **kwargs,
     ):
         super(WeightedHGTConv, self).__init__(in_channels, out_channels, metadata, heads, **kwargs)
+
+        self.all_edges_dict = all_edges_dict
+
+        # Initialize learnable edge weights
+        self.edge_weights_dict = torch.nn.ParameterDict()
+
+        for edge_type, edge_indices in self.all_edges_dict.items():
+            edge_type = '__'.join(edge_type)
+            parameter_tensor = torch.nn.Parameter(F.sigmoid(torch.randn((1, len(edge_indices)), requires_grad=True)))
+            self.edge_weights_dict[edge_type] = parameter_tensor
 
     def forward(
             self,
             x_dict: Dict[NodeType, Tensor],
             edge_index_dict: Dict[EdgeType, Adj],
-            edge_weights_dict: Dict[EdgeType, Tensor] = None  # new edge_weights dict
+            relevant_edge_weights_indices_dict: Dict[EdgeType, Tensor] = None  # new edge_weights_indices dict
     ) -> Dict[NodeType, Optional[Tensor]]:
         r"""Runs the forward pass of the module.
 
@@ -63,18 +74,17 @@ class WeightedHGTConv(HGTConv):
         k, v, src_offset = self._construct_src_node_feat(
             k_dict, v_dict, edge_index_dict)
 
-        # for edge_type, edge_weights_indices in edge_weights_dict.items():
-        #     relevant_weights = self.edge_weights_dict[edge_type][0][edge_weights_indices]
-        #     self.relevant_weights_dict[edge_type] = torch.nn.Parameter(torch.stack((relevant_weights, relevant_weights), dim=1), requires_grad=True)
-
-        edge_index, edge_attr, = construct_bipartite_edge_index(
+        edge_index, edge_attr, edge_weight = construct_bipartite_edge_index(
             edge_index_dict,
             src_offset,
             dst_offset,
-            edge_attr_dict=self.p_rel
+            edge_attr_dict=self.p_rel,
+            edge_weight_dict=self.edge_weights_dict,
+            relevant_edge_weights_indices_dict=relevant_edge_weights_indices_dict
         )
 
         out = self.propagate(edge_index, k=k, q=q, v=v,
+                             edge_weight=edge_weight,  # Pass the edge weights
                              edge_attr=edge_attr,
                              size=None)
 
@@ -83,14 +93,11 @@ class WeightedHGTConv(HGTConv):
             end_offset = start_offset + q_dict[node_type].size(0)
             if node_type in self.dst_node_types:
                 out_dict[node_type] = out[start_offset:end_offset]
-                for node_index, node_embeddings in enumerate(out_dict[node_type]):
-                    weight = compute_weight(node_type, node_index, edge_index_dict, edge_weights_dict)
-                    out_dict[node_type][node_index] *= weight
 
         # Transform output node embeddings:
         a_dict = self.out_lin({
             k:
-                torch.nn.functional.gelu(v) if v is not None else v
+            torch.nn.functional.gelu(v) if v is not None else v
             for k, v in out_dict.items()
         })
 
@@ -106,10 +113,9 @@ class WeightedHGTConv(HGTConv):
         return out_dict
 
     def message(self, k_j: Tensor, q_i: Tensor, v_j: Tensor, edge_attr: Tensor,
+                edge_weight: Tensor,  # New argument for edge weights
                 index: Tensor, ptr: Optional[Tensor],
-                size_i: Optional[int],
-                edge_weight: Optional[Tensor] = None,  # New argument for edge weights
-                ) -> Tensor:
+                size_i: Optional[int]) -> Tensor:
         alpha = (q_i * k_j).sum(dim=-1) * edge_attr
 
         if edge_weight is not None:
