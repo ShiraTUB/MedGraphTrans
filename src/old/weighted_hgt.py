@@ -10,7 +10,7 @@ from torch_geometric.loader import LinkNeighborLoader
 from src.utils import node_types, metadata
 from torch_geometric.data import HeteroData
 
-from src.medical_hgt.weighted_hgt_conv import WeightedHGTConv
+from src.old.weighted_hgt_conv import WeightedHGTConv
 
 data_path = '../../datasets/merged_hetero_dataset/processed_graph_1000_train_val_masked_with_edge_uids.pickle'
 

@@ -4,12 +4,15 @@ import torch.nn.functional as F
 
 from torch import Tensor
 from typing import Dict, Optional, Union
-from torch_geometric.nn.conv import HGTConv
+from torch_geometric.nn.conv import HGTConv, HEATConv, GCNConv
 from torch_geometric.typing import Adj, EdgeType, Metadata, NodeType
 from torch_geometric.utils import softmax
+from torch_geometric.nn.inits import glorot, ones
+from torch_geometric.nn.dense.linear import Linear
+from torch.nn import Parameter
 
 from src.medical_hgt.ml_utils import compute_weight
-from torch_geometric.utils.hetero import construct_bipartite_edge_index
+from src.medical_hgt.ml_utils import construct_bipartite_edge_index
 
 
 class WeightedHGTConv(HGTConv):
@@ -22,6 +25,27 @@ class WeightedHGTConv(HGTConv):
             **kwargs,
     ):
         super(WeightedHGTConv, self).__init__(in_channels, out_channels, metadata, heads, **kwargs)
+        # self.lin_edge_list = torch.nn.ModuleList()
+        #
+        # for edge_type in self.edge_types_map.values():
+        #     edge_lin = Linear(1, self.heads * self.out_channels, bias=False, weight_initializer='glorot')
+        #     self.lin_edge_list.append(edge_lin)
+        #
+        # self.e = Parameter(
+        #     torch.empty(self.heads * self.out_channels,
+        #                 self.heads * out_channels // heads))
+        self._alpha = None
+
+    def reset_parameters(self):
+        super().reset_parameters()
+        self.kqv_lin.reset_parameters()
+        self.out_lin.reset_parameters()
+        self.k_rel.reset_parameters()
+        self.v_rel.reset_parameters()
+        ones(self.skip)
+        ones(self.p_rel)
+        # glorot(self.lin_edge)
+        # glorot(self.e)
 
     def forward(
             self,
@@ -67,16 +91,22 @@ class WeightedHGTConv(HGTConv):
         #     relevant_weights = self.edge_weights_dict[edge_type][0][edge_weights_indices]
         #     self.relevant_weights_dict[edge_type] = torch.nn.Parameter(torch.stack((relevant_weights, relevant_weights), dim=1), requires_grad=True)
 
-        edge_index, edge_attr, = construct_bipartite_edge_index(
+        edge_index, edge_attr, edge_weight, edge_offset_dict = construct_bipartite_edge_index(
             edge_index_dict,
             src_offset,
             dst_offset,
-            edge_attr_dict=self.p_rel
+            edge_attr_dict=self.p_rel,
+            edge_weights_dict=edge_weights_dict,
         )
 
         out = self.propagate(edge_index, k=k, q=q, v=v,
                              edge_attr=edge_attr,
+                             edge_weight=edge_weight,
+                             edge_offset_dict=edge_offset_dict,
                              size=None)
+
+        message_alpha = self._alpha
+        self._alpha = None
 
         # Reconstruct output node embeddings dict:
         for node_type, start_offset in dst_offset.items():
@@ -109,18 +139,33 @@ class WeightedHGTConv(HGTConv):
                 index: Tensor, ptr: Optional[Tensor],
                 size_i: Optional[int],
                 edge_weight: Optional[Tensor] = None,  # New argument for edge weights
+                edge_offset_dict: Dict[EdgeType, int] = None,
                 ) -> Tensor:
         alpha = (q_i * k_j).sum(dim=-1) * edge_attr
 
-        if edge_weight is not None:
-            alpha = alpha * edge_weight  # Apply edge weights
+        alpha_edge = 0
+        # if edge_weight is not None:
+        #     if edge_weight.dim() == 1:
+        #         edge_weight = edge_weight.view(-1, 1)
+        #
+        #     edge_weights = self.lin_edge(edge_weight).view(
+        #         -1, self.heads * self.out_channels)
+        #     # if edge_weights.size(0) != edge_weight.size(0):
+        #     #     edge_weights = torch.index_select(edge_weights, 0,
+        #     #                                          edge_type)
+        #     alpha_edge = torch.matmul(edge_weights, self.e)
+        #
+        #     alpha = alpha * alpha_edge  # Apply edge weights
 
         alpha = alpha / math.sqrt(q_i.size(-1))
         alpha = softmax(alpha, index, ptr, size_i)
+
+        self._alpha = alpha
         out = v_j * alpha.view(-1, self.heads, 1)
 
         return out.view(-1, self.out_channels)
 
-    def __repr__(self) -> str:
-        return (f'{self.__class__.__name__}(-1, {self.out_channels}, '
-                f'heads={self.heads})')
+
+def __repr__(self) -> str:
+    return (f'{self.__class__.__name__}(-1, {self.out_channels}, '
+            f'heads={self.heads})')
