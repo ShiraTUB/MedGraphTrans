@@ -6,9 +6,8 @@ import argparse
 from dataclasses import dataclass
 from typing import List
 
-from src.medical_hgt.model import Model
+from src.medical_hgt.model import MedicalHGT, LLM
 from src.medical_hgt.training import train_model
-from src.medical_hgt.data_loaders import build_link_neighbor_loaders
 from src.medical_hgt.dataset_builder import MedicalQADatasetBuilder
 from config import ROOT_DIR
 
@@ -33,13 +32,17 @@ def run_experiment(link_neighbor_params, device, runs=2):
     #                                       link_neighbor_params.batch_size)
 
     loaders = {'train': dataset_builder.train_mini_batches, 'val': dataset_builder.val_mini_batches, 'test': dataset_builder.test_mini_batches}
+    qa_datasets = {'train': dataset_builder.train_qa_dataset, 'val': dataset_builder.val_qa_dataset, 'test': dataset_builder.test_qa_dataset}
+    prime_kg = pickle.load(open(os.path.join(ROOT_DIR, args.prime_kg_dataset), 'rb'))
 
     all_edges_dict = dataset_builder.all_edges_dict
 
     for i in range(runs):
         file_name = link_neighbor_params.get_file_name() + f'_run{i + 1}.pth'
-        model = Model(all_edges_dict, hidden_channels=64)
-        train_model(model, loaders, device, file_name, num_epochs=link_neighbor_params.num_epochs, prime_kg=args.prime_kg_dataset)
+        # model = Model(all_edges_dict, hidden_channels=64)
+        medical_hgt = MedicalHGT(hidden_channels=64)
+        llm = LLM()
+        train_model(medical_hgt, llm, loaders, device, file_name, num_epochs=link_neighbor_params.num_epochs, prime_kg=prime_kg, split_qa_dataset=qa_datasets)
 
 
 @dataclass(frozen=True)

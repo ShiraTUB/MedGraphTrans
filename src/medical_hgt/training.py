@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
 from dataclasses import dataclass
 
-from ml_utils import decode_edge_weights
+from ml_utils import find_subgraph_bfs, find_most_relevant_nodes
 
 
 def free_memory():
@@ -29,7 +29,7 @@ def get_masked(target, batch, split_name):
     return target if mask_name not in batch else target[batch[mask_name]]
 
 
-def evaluate_model(model, split_loaders, split_name, device, prime_kg, frac=1.0):
+def evaluate_model(medical_hgt, split_loaders, split_name, device, prime_kg, frac=1.0):
     """
     Args:
     model (torch.nn.Module): The model to evaluate.
@@ -41,7 +41,7 @@ def evaluate_model(model, split_loaders, split_name, device, prime_kg, frac=1.0)
     Returns:
     float: The ROC AUC score for the evaluated split.
     """
-    model.eval()
+    medical_hgt.eval()
 
     pos_y_true_tensors = []
     neg_y_true_tensors = []
@@ -58,9 +58,7 @@ def evaluate_model(model, split_loaders, split_name, device, prime_kg, frac=1.0)
         batch = batch.to(device)
 
         with torch.no_grad():
-            pos_pred, neg_pred = model(batch)
-
-            most_relevant_edges = decode_edge_weights(model.edge_weights_dict, batch.edge_index_dict, prime_kg)
+            pos_pred, neg_pred, z_dict = medical_hgt(batch)
 
             pos_eval_y = batch["question", "question_correct_answer", "answer"].edge_label.squeeze()
             neg_eval_y = batch["question", "question_wrong_answer", "answer"].edge_label.squeeze()
@@ -76,10 +74,17 @@ def evaluate_model(model, split_loaders, split_name, device, prime_kg, frac=1.0)
             pos_y_true_tensors.append(pos_eval_y.detach())
             neg_y_true_tensors.append(neg_eval_y.detach())
 
+            knowledge_nodes_per_question_dict = {}
+            for node_index, question_node_representation in enumerate(z_dict['question']):
+                subgraph_nodes_uid_dict = find_subgraph_bfs(batch, node_index, 'question')
+                question_node_uid = batch['question'].node_uid[node_index]
+                most_relevant_nodes = find_most_relevant_nodes(batch, z_dict, question_node_representation, subgraph_nodes_uid_dict, prime_kg)
+                knowledge_nodes_per_question_dict[question_node_uid] = most_relevant_nodes
+
         if batch_num >= num_batches:
             break
 
-    model.train()
+    medical_hgt.train()
 
     pos_pred = torch.cat(pos_y_pred_tensors, dim=0).numpy()
     neg_pred = torch.cat(neg_y_pred_tensors, dim=0).numpy()
@@ -89,7 +94,7 @@ def evaluate_model(model, split_loaders, split_name, device, prime_kg, frac=1.0)
     pred = np.concatenate([pos_pred, neg_pred])
     true = np.concatenate([pos_true, neg_true])
 
-    return roc_auc_score(true, pred)
+    return roc_auc_score(true, pred), knowledge_nodes_per_question_dict
 
 
 @dataclass(frozen=True)
@@ -148,7 +153,7 @@ def get_time():
     return round(time.time())
 
 
-def compute_loss(pos_preds: torch.Tensor, neg_preds: torch.Tensor, pos_labels: torch.Tensor, neg_labels: torch.Tensor) -> torch.Tensor:
+def compute_link_prediction_loss(pos_preds: torch.Tensor, neg_preds: torch.Tensor, pos_labels: torch.Tensor, neg_labels: torch.Tensor) -> torch.Tensor:
     """
     Args:
     pos_preds (torch.Tensor): Predictions for positive links, expected to be logits.
@@ -172,16 +177,21 @@ def compute_loss(pos_preds: torch.Tensor, neg_preds: torch.Tensor, pos_labels: t
     return total_loss
 
 
-def train_model(model, split_loaders, device, file_name, prime_kg, num_epochs=30, lr=0.1):
-    model = model.to(device)
-    model.train()
+def train_model(medical_hgt, llm, split_loaders, device, file_name, prime_kg, split_qa_dataset, num_epochs=30, lr=0.001):
+    medical_hgt = medical_hgt.to(device)
+    llm = llm.to(device)
 
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    medical_hgt.train()
+    llm.train()
+
+    opt = torch.optim.Adam(medical_hgt.parameters(), lr=lr)
 
     start_time = get_time()
     print(f'start time: {start_time}; will save results to {file_name}')
 
     train_loader = split_loaders['train']
+    train_qa_dataset_df = split_qa_dataset['train']
+
     epoch_results = []
 
     for epoch_num in range(1, num_epochs + 1):
@@ -204,10 +214,10 @@ def train_model(model, split_loaders, device, file_name, prime_kg, num_epochs=30
             opt.zero_grad()
             batch = batch.to(device)
 
-            # internally, the model is applied using all the batch's edges (i.e.,
+            # internally, the medical_hgt is applied using all the batch's edges (i.e.,
             # batch.edge_index) but only outputs predictions on edges to be labeled
             # (i.e., batch.edge_label_index).
-            pos_train_pred, neg_train_pred = model(batch)
+            pos_train_pred, neg_train_pred, z_dict = medical_hgt(batch)
 
             pos_train_y = batch["question", "question_correct_answer", "answer"].edge_label.squeeze()
             neg_train_y = batch["question", "question_wrong_answer", "answer"].edge_label.squeeze()
@@ -218,30 +228,31 @@ def train_model(model, split_loaders, device, file_name, prime_kg, num_epochs=30
             if neg_train_y.dim() == 0:
                 neg_train_y = neg_train_y.view(1)
 
-            loss = compute_loss(pos_train_pred, neg_train_pred, pos_train_y, neg_train_y)
-            loss.backward()
+            confidence_diffs_per_question = []  # a list of tuples (question_embeddings, conf_diffs_dict_per_question)
+            # compute the llm's feedback per question in the batch
+            for node_index, question_node_representation in enumerate(z_dict['question']):
+                subgraph_nodes_uid_dict = find_subgraph_bfs(batch, node_index, 'question')
+                prompt_dict = dict(train_qa_dataset_df.iloc[node_index].drop(['id', 'cop', 'exp']))
+                correct_answer = train_qa_dataset_df.iloc[node_index]['cop']
+                current_confidence_diffs_dict = llm(subgraph_nodes_uid_dict, prime_kg, prompt_dict, correct_answer)
+                confidence_diffs_per_question.append((question_node_representation, current_confidence_diffs_dict))
+                break
+
+            link_prediction_loss = compute_link_prediction_loss(pos_train_pred, neg_train_pred, pos_train_y, neg_train_y)
+            llm_relevancy_loss = compute_llm_relevancy_loss(batch, z_dict, confidence_diffs_per_question)
+
+            total_loss = (link_prediction_loss + (llm_relevancy_loss * 0.01))
+            total_loss.backward()
+
             opt.step()
-
-            # Retrieve learned weights from previous batch
-            for edge_type in model.edge_weights_dict.keys():
-                if edge_type in model.selected_weights_dict:
-                    model.edge_weights_dict[edge_type][model.relevant_edge_indices_dict[edge_type]] = model.selected_weights_dict[edge_type]
-                    del model.relevant_edge_indices_dict[edge_type]
-                    del model.selected_weights_dict[edge_type]
-
-            # for edge_type, edge_indices in model.hgt.relevant_edge_weights_indices_dict.items():
-            #     if edge_type in model.relevant_weights_dict:
-            #         for i, weight_index in enumerate(edge_indices):
-            #             temp = model.edge_weights_dict[edge_type][0].clone()
-            #             temp[weight_index] = model.relevant_weights_dict[edge_type][i][0]
-            #             model.edge_weights_dict[edge_type][0] = temp
 
             pos_y_pred_tensors.append(pos_train_pred.detach())
             neg_y_pred_tensors.append(neg_train_pred.detach())
             pos_y_true_tensors.append(pos_train_y.detach().long())
             neg_y_true_tensors.append(neg_train_y.detach().long())
 
-            train_losses.append(loss.detach().item())
+            train_losses.append(total_loss.detach().item())
+            break
 
         train_end_time = get_time()
 
@@ -256,13 +267,13 @@ def train_model(model, split_loaders, device, file_name, prime_kg, num_epochs=30
         # the training ROC AUC is computed using all the predictions (and ground
         # truth labels) made during the entire epoch, across all batches. Note that
         # this is arguably a bit inconsistent with validation below since it doesn't
-        # give the model a "second try" for earlier batches, for which it couldn't
+        # give the medical_hgt a "second try" for earlier batches, for which it couldn't
         # have yet applied anything it learned in later batches.
         train_acc = roc_auc_score(true, pred)
 
         # The validation ROC AUC is computed by running through the validation set
         # at the end of every epoch.
-        val_acc = evaluate_model(model, split_loaders, 'val', device, prime_kg=prime_kg)
+        val_acc, val_most_relevant_nodes = evaluate_model(medical_hgt, split_loaders, 'val', device, prime_kg=prime_kg)
 
         epoch_result = EpochResult(
             epoch_num=epoch_num,
@@ -276,16 +287,53 @@ def train_model(model, split_loaders, device, file_name, prime_kg, num_epochs=30
         epoch_results.append(epoch_result)
         print(f'\r{epoch_result}')
 
-    state_dict = copy.deepcopy(model.state_dict())
-    test_acc = evaluate_model(model, split_loaders, 'test', device)
+    state_dict = copy.deepcopy(medical_hgt.state_dict())
+    test_acc, test_most_relevant_nodes = evaluate_model(medical_hgt, split_loaders, 'test', device, prime_kg=prime_kg)
 
-    model.eval()
+    medical_hgt.eval()
 
     end_time = get_time()
-    model_result = ModelResult(start_time, end_time, epoch_results, state_dict, round(test_acc, 4))
-    torch.save(model_result, file_name)
+    medical_hgt_result = ModelResult(start_time, end_time, epoch_results, state_dict, round(test_acc, 4))
+    torch.save(medical_hgt_result, file_name)
 
-    train_time_min = model_result.get_total_train_time_min()
+    train_time_min = medical_hgt_result.get_total_train_time_min()
     print(f'\rTest Accuracy: {test_acc:.3f}; Total Train Time: {train_time_min} min')
 
-    return model_result
+    return medical_hgt_result
+
+
+def compute_llm_relevancy_loss(batch, z_dict, gradients_per_questions_list):
+    # Initialize loss
+    loss = 0.0
+    num_nodes = 0
+
+    # Iterate over all nodes to form triplets and compute loss
+    for question_embedding, grads_dict in gradients_per_questions_list:
+        for node_type, grad_info_dict in grads_dict.items():
+            batch_node_indices = [torch.where(batch[node_type].node_uid == x)[0][0] for x in list(grad_info_dict.keys())]
+            gradients_list = list(grad_info_dict.values())
+            for i, node_index in enumerate(batch_node_indices):
+                current_node_embedding = torch.index_select(z_dict[node_type], 0, node_index)
+
+                # Calculate the distance between the node embedding and the central node embedding
+                distance = torch.norm(current_node_embedding - question_embedding, p=2)
+
+                # Determine the weight based on relevance
+                relevance = gradients_list[i]
+
+                # For positive relevance, penalize being far from the central node
+                # For negative relevance, penalize being close to the central node
+                if relevance > 0:
+                    weighted_loss = relevance * distance
+                elif relevance < 0:
+                    # Invert the distance measure for negative relevance
+                    weighted_loss = -relevance * (1 / (distance + 1e-6))  # adding a small constant to avoid division by zero
+                else:  # relevance is around 0, neutral
+                    weighted_loss = 0
+
+                # Accumulate the loss
+                loss += weighted_loss
+
+            num_nodes += len(gradients_list)
+
+    return loss / num_nodes

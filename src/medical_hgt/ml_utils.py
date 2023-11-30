@@ -1,12 +1,18 @@
-import networkx as nx
+import openai
 import torch
+
 from torch import Tensor
+from collections import deque
 from torch_geometric.data import HeteroData
 from torch.nn import ParameterDict
 from typing import Dict, List, Optional, Tuple
 from torch_geometric.nn.parameter_dict import ParameterDict
 from torch_geometric.typing import Adj, EdgeType, NodeType, SparseTensor
 from torch_geometric.utils import is_sparse, to_edge_index
+
+from config import OPENAI_API_KEY
+
+openai.api_key = OPENAI_API_KEY
 
 
 def split_data(hetero_data: HeteroData, positive_target_relation: tuple[str, str, str] = ('question', 'question_correct_answer', 'answer'), negative_target_relation: tuple[str, str, str] = ('question', 'question_wrong_answer', 'answer'),
@@ -150,15 +156,14 @@ def construct_bipartite_edge_index(
         src_offset_dict: Dict[EdgeType, int],
         dst_offset_dict: Dict[NodeType, int],
         edge_attr_dict: Optional[Dict[EdgeType, Tensor]] = None,
-        relevant_edge_weights_indices_dict: Optional[Dict[EdgeType, Tensor]] = None,
-        edge_weight_dict: Optional[ParameterDict] = None
-) -> Tuple[Adj, Optional[Tensor], Optional[Tensor]]:
+        edge_weights_dict: Optional[Dict[EdgeType, Tensor]] = None,
+) -> Tuple[Adj, Optional[Tensor], Optional[Tensor], Dict[EdgeType, int]]:
     """Constructs a tensor of edge indices by concatenating edge indices
     for each edge type. The edge indices are increased by the offset of the
     source and destination nodes.
 
     Args:
-        edge_weight_dict: New parameter for edge weights
+        edge_weights_dict:
         edge_index_dict (Dict[Tuple[str, str, str], torch.Tensor]): A
             dictionary holding graph connectivity information for each
             individual edge type, either as a :class:`torch.Tensor` of
@@ -175,15 +180,15 @@ def construct_bipartite_edge_index(
     is_sparse_tensor = False
     edge_indices: List[Tensor] = []
     edge_attrs: List[Tensor] = []
-    edge_weights: List[Tensor] = []  # List to store concatenated edge weights
-
+    edge_weights: List[Tensor] = []
+    edge_offset_dict = {}
     for edge_type, src_offset in src_offset_dict.items():
         edge_index = edge_index_dict[edge_type]
+        edge_offset_dict[edge_type] = edge_index.size(1)
         dst_offset = dst_offset_dict[edge_type[-1]]
 
         # TODO Add support for SparseTensor w/o converting.
         is_sparse_tensor = isinstance(edge_index, SparseTensor)
-
         if is_sparse(edge_index):
             edge_index, _ = to_edge_index(edge_index)
             edge_index = edge_index.flip([0])
@@ -199,38 +204,28 @@ def construct_bipartite_edge_index(
                 edge_attr = edge_attr_dict['__'.join(edge_type)]
             else:
                 edge_attr = edge_attr_dict[edge_type]
-
             if edge_attr.size(0) != edge_index.size(1):
                 edge_attr = edge_attr.expand(edge_index.size(1), -1)
-
             edge_attrs.append(edge_attr)
 
-        # Handle edge weights
-        if edge_weight_dict is not None and '__'.join(edge_type) in edge_weight_dict:
-            # edge_weight = edge_weight_dict['__'.join(edge_type)][0][relevant_edge_weights_indices_dict['__'.join(edge_type)]]
-
-            index = relevant_edge_weights_indices_dict['__'.join(edge_type)]
-            selected_edge_weight = torch.index_select(
-                edge_weight_dict['__'.join(edge_type)][0], 0, index
-            )
-
-            # if edge_weight.size(0) != edge_index.size(1):
-            #     edge_weight = edge_weight.expand(edge_index.size(1), -1)
-
-            edge_weights.append(selected_edge_weight)
+        if edge_weights_dict is not None:
+            if isinstance(edge_weights_dict, ParameterDict):
+                edge_weight = edge_weights_dict['__'.join(edge_type)]
+            else:
+                edge_weight = edge_weights_dict[edge_type]
+            if edge_weight.size(0) != edge_index.size(1):
+                edge_weight = edge_weight.expand(edge_index.size(1), -1)
+            edge_weights.append(edge_weight)
 
     edge_index = torch.cat(edge_indices, dim=1)
 
     edge_attr: Optional[Tensor] = None
-
     if edge_attr_dict is not None:
         edge_attr = torch.cat(edge_attrs, dim=0)
 
     edge_weight: Optional[Tensor] = None
-
-    if edge_weight_dict is not None:
-        edge_weight = torch.cat(edge_weights, dim=0)
-        edge_weight = torch.stack((edge_weight, edge_weight), dim=1)
+    if edge_weights_dict is not None:
+        edge_weight = torch.cat(edge_attrs, dim=0)
 
     if is_sparse_tensor:
         # TODO Add support for `SparseTensor.sparse_sizes()`.
@@ -240,20 +235,26 @@ def construct_bipartite_edge_index(
             value=edge_attr,
         )
 
-    return edge_index, edge_attr, edge_weight  # Return edge weights as well
+    return edge_index, edge_attr, edge_weight, edge_offset_dict
 
 
-def decode_edge_weights(edge_weights_dict: dict, edge_index_dict: dict, all_edges_dict: dict, prime_kg: nx.Graph, relevancy_threshold: float = 0.7):
-    # todo WIP
-    for edge_type, edge_type_weights in edge_weights_dict.items():
-        relevant_edges_indices = torch.where(edge_type_weights.squeeze() >= relevancy_threshold)[0]
-        relevant_edges_uid = all_edges_dict[tuple(edge_type.split('__'))][relevant_edges_indices]
-        relevant_edges = edge_index_dict[relevant_edges_indices]
-        relevant_source_node_indices, relevant_target_node_indices = relevant_edges[0], relevant_edges[1]
+def find_most_relevant_nodes(batch, z_dict, question_nodes_embedding, knowledge_nodes_uid_dict, prime_gk, similarity_threshold=0.65):
+    relevant_nodes_list = []
+    relevant_nodes_names, relevant_nodes_types = [], []
+    for node_type, nodes_uids in knowledge_nodes_uid_dict.items():
+        node_indices = [torch.where(batch[node_type].node_uid == x)[0][0] for x in nodes_uids]
+        node_embeddings = torch.index_select(z_dict[node_type], 0, torch.tensor(node_indices))
 
-        relevant_edges = [prime_kg.edges[s, t] for s, t in zip(relevant_source_node_indices, relevant_target_node_indices)]
+        # Calculate the distance between the node embedding and the central node embedding
+        distances = torch.norm(question_nodes_embedding.repeat(node_embeddings.size(0), 1) - node_embeddings, p=2, dim=1)
+        threshold_dist_indices = torch.where(distances <= similarity_threshold)
+        relevant_nodes_uids = nodes_uids[threshold_dist_indices]
+        for index in relevant_nodes_uids:
+            node_type = prime_gk.nodes[index.item()]['type']
+            node_name = prime_gk.nodes[index.item()]['name']
+            relevant_nodes_list.append(f'The {node_type} {node_name}')
 
-        return relevant_edges
+    return relevant_nodes_list
 
 
 def compute_weight(node_type: str, node_index: int, edge_index_dict: dict, edge_weights_dict: dict):
@@ -273,3 +274,68 @@ def compute_weight(node_type: str, node_index: int, edge_index_dict: dict, edge_
         return torch.prod(torch.stack(weights, dim=0))
     else:
         return 1
+
+
+def find_subgraph_bfs(graph: HeteroData, start_node_index: int, start_node_type: str):
+    visited_nodes = set()
+    # subgraph_nodes = set()
+    subgraph_dict = {}
+    queue = deque([(start_node_index, start_node_type)])
+    while queue:
+        current_node, node_type = queue.popleft()
+        visited_nodes.add((current_node, node_type))
+        if node_type != 'question' and node_type != 'answer':
+            if node_type not in subgraph_dict:
+                subgraph_dict[node_type] = []
+            subgraph_dict[node_type].append(graph[node_type].node_uid[current_node].item())
+            # subgraph_nodes.add((graph[node_type].node_uid[current_node].item(), node_type))
+
+        # Iterate over all edge types
+        for edge_type in graph.edge_types:
+            # Check if the current node type is part of the edge type
+            if node_type in edge_type:
+
+                # Determine the node type at the other end of the edge
+                other_node_type = edge_type[2] if node_type == edge_type[0] else edge_type[0]
+
+                # Get the edge index for the current edge type
+                edge_index = graph[edge_type].edge_index
+
+                # Find the neighbors
+                neighbors = edge_index[1][edge_index[0] == current_node] if node_type == edge_type[0] else edge_index[0][edge_index[1] == current_node]
+                for neighbor in neighbors:
+                    if (neighbor.item(), other_node_type) not in visited_nodes:
+                        visited_nodes.add((neighbor.item(), other_node_type))
+                        if other_node_type != 'question' and other_node_type != 'answer':
+                            if other_node_type not in subgraph_dict:
+                                subgraph_dict[other_node_type] = []
+                            subgraph_dict[other_node_type].append(graph[other_node_type].node_uid[neighbor].item())
+                            # subgraph_nodes.add((graph[other_node_type].node_uid[neighbor].item(), other_node_type))
+                        queue.append((neighbor.item(), other_node_type))
+
+    for n_type in subgraph_dict.keys():
+        subgraph_dict[n_type] = torch.unique(torch.tensor(subgraph_dict[n_type]))
+
+    return subgraph_dict
+
+
+def compute_llm_confidence_diff(confidence_without_context, confidence_with_context):
+    # todo: work on logic
+
+    return confidence_with_context - confidence_without_context
+
+
+def query_chatbot(prompt, output_instructions):
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": prompt + output_instructions},
+            ],
+            request_timeout=15,
+            n=1
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"API call failed with an exception: {e}")
+        return -1

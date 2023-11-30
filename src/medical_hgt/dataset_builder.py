@@ -1,13 +1,16 @@
 import os.path
 import pickle
 import random
+
 import torch
 import networkx as nx
+import pandas as pd
 
 from itertools import chain
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import HeteroData
 from typing import List, Tuple
+from datasets import load_dataset
 
 from src.preprocess_graph.build_subgraph import convert_nx_to_hetero_data
 from config import ROOT_DIR
@@ -29,6 +32,12 @@ class MedicalQADatasetBuilder:
         self.all_edges_dict = {}
         self.processed_data_list = self.build_processed_data_list()
 
+        # todo: fix later
+        qa_dataset = load_dataset('medmcqa')
+        train_medmcqa = pd.DataFrame(qa_dataset['train'])[:500]
+        val_medmcqa = pd.DataFrame(qa_dataset['validation'])[:500]
+        self.qa_dataset = pd.concat([train_medmcqa, val_medmcqa])
+
         self.num_val_samples = int(len(self.raw_data_list) * val_ratio)
         self.num_test_samples = int(len(self.raw_data_list) * test_ratio)
         self.num_train_samples = len(self.raw_data_list) - self.num_val_samples - self.num_test_samples
@@ -39,11 +48,27 @@ class MedicalQADatasetBuilder:
         self.negative_sampling_ratio = negative_sampling_ratio
 
         self.processed_train_dataset = self.processed_data_list[:self.num_train_samples].copy()
+        self.train_qa_dataset = self.qa_dataset.iloc[:self.num_train_samples]
         self.processed_val_dataset = self.processed_data_list[: self.num_train_samples + self.num_val_samples].copy()
+        self.val_qa_dataset = self.qa_dataset.iloc[: self.num_train_samples + self.num_val_samples]
         self.processed_test_dataset = self.processed_data_list.copy()
+        self.test_qa_dataset = self.qa_dataset
 
-        random.shuffle(self.processed_val_dataset)
-        random.shuffle(self.processed_test_dataset)
+        # shuffle val and test datasets
+        val_indices = list(range(len(self.processed_val_dataset)))
+        test_indices = list(range(len(self.processed_test_dataset)))
+
+        # Shuffle the original lists along with their index lists
+        combined_val = list(zip(self.processed_val_dataset, val_indices))
+        random.shuffle(combined_val)
+        self.processed_val_dataset, val_indices_shuffled = zip(*combined_val)
+
+        combined_test = list(zip(self.processed_test_dataset, test_indices))
+        random.shuffle(combined_test)
+        self.processed_test_dataset, test_indices_shuffled = zip(*combined_test)
+
+        self.val_qa_dataset = self.val_qa_dataset.iloc[list(val_indices_shuffled)]
+        self.test_qa_dataset = self.test_qa_dataset.iloc[list(test_indices_shuffled)]
 
         self.train_loader = DataLoader(self.processed_train_dataset, batch_size=batch_size)
         self.train_mini_batches = self.preprocess_batches(self.train_loader)
