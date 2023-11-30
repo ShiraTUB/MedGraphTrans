@@ -29,7 +29,7 @@ class KnowledgeExtractor:
         self.knowledge_triplets_list = None
         self.knowledge_nodes_embedding = None
         self.knowledge_indices = None
-        self.context_node_embedding = embedding_method(text)
+        self.context_node_embedding = self.check_emb(embedding_method(text))
         self.set_entities(entities)
 
         if init_data_method is not None:
