@@ -116,7 +116,6 @@ meta_relations_dict_complete = {
 
 def embed_text(text):
     """please implement this function according to your domain and use-case"""
-    # self.context_node_embedding = self.model.encode([self.text])
     try:
         embeddings = openai.Embedding.create(input=[text], model="text-embedding-ada-002")['data'][0]['embedding']
         open_ai_embedding = np.reshape(np.asarray(embeddings), (-1, np.asarray(embeddings).shape[0]))
