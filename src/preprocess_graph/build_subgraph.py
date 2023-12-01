@@ -96,17 +96,13 @@ def convert_nx_to_hetero_data(graph: nx.Graph, edge_uid_offset=0, add_edge_weigh
 
         s_node = graph.nodes[s]
         s_node_type = s_node['type']
-        s_node_embedding = s_node['embedding']
+        s_node_embedding = torch.squeeze(s_node['embedding'], dim=1)
         s_uid = s_node['index']
-        if s_node_embedding.dim() == 2:
-            s_node_embedding = torch.squeeze(s_node_embedding, dim=1)
 
         t_node = graph.nodes[t]
         t_node_type = t_node['type']
-        t_node_embedding = t_node['embedding']
+        t_node_embedding = torch.squeeze(t_node['embedding'], dim=1)
         t_uid = t_node['index']
-        if t_node_embedding.dim() == 2:
-            t_node_embedding = torch.squeeze(t_node_embedding, dim=1)
 
         if s_node_type != relation[0]:
             s_node_type, t_node_type = t_node_type, s_node_type
@@ -239,9 +235,18 @@ def initiate_question_graph_dict(question: str, answer_choices: [str], question_
     return graph_data
 
 
-def initiate_question_graph(graph: nx.Graph, question: str, answer_choices: [str], correct_answer: int, question_entities_indices_list: list, answer_entities_dict: dict, prime_kg: nx.Graph) -> nx.Graph:
-    question_embeddings = torch.tensor(openai.Embedding.create(input=[question], model="text-embedding-ada-002")['data'][0]['embedding'])
-    question_index = random.randint(10 ** 9, (10 ** 10) - 1)
+def initiate_question_graph(
+        graph: nx.Graph,
+        question: str,
+        answer_choices: [str],
+        correct_answer: int,
+        question_entities_indices_list: list,
+        answer_entities_dict: dict,
+        prime_kg: nx.Graph,
+        question_index: int
+) -> nx.Graph:
+    question_embeddings = torch.tensor(openai.Embedding.create(input=[question], model="text-embedding-ada-002")['data'][0]['embedding']).unsqueeze(1)
+    question_index = question_index
 
     graph.add_node(question_index, embedding=question_embeddings, type="question", index=question_index, name=question)
 
@@ -252,7 +257,7 @@ def initiate_question_graph(graph: nx.Graph, question: str, answer_choices: [str
         graph.add_edge(question_index, question_entity_index, relation=f"question_{target_node_type}")
 
     for choice_index, answer_choice in enumerate(answer_choices):
-        answer_embeddings = torch.tensor(openai.Embedding.create(input=[answer_choice], model="text-embedding-ada-002")['data'][0]['embedding'])
+        answer_embeddings = torch.tensor(openai.Embedding.create(input=[answer_choice], model="text-embedding-ada-002")['data'][0]['embedding']).unsqueeze(1)
 
         answer_index = random.randint(10 ** 9, (10 ** 10) - 1)
         graph.add_node(answer_index, embedding=answer_embeddings, type="answer", index=answer_index, name=answer_choice, answer_choice_index=choice_index)

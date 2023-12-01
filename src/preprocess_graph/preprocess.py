@@ -19,7 +19,7 @@ parser.add_argument('--prime_kg_dataset', type=str, default='datasets/primeKG_nx
 parser.add_argument('--prime_kg_embeddings_dataset', type=str, default='datasets/primeKG_embeddings_tensor.pt', help='primeKG embeddings pt path')
 parser.add_argument('--trie_path', type=str, default='datasets/trie.pickle', help='knowledge_graph_trie path, set to None if no trie is available')
 parser.add_argument('--qa_dataset_name', type=str, default='medmcqa', help='Name of dataset to download using datasets')
-parser.add_argument('--dataset_target_path', type=str, default='datasets/raw_graph_dataset', help='Path of where to save the processed dataset')
+parser.add_argument('--dataset_target_path', type=str, default='datasets/graph_dataset_30_11_23', help='Path of where to save the processed dataset')
 parser.add_argument('--target_dataset', type=str, default='train', help='Use either train/validation/test dataset')
 
 args = parser.parse_args()
@@ -46,9 +46,10 @@ if __name__ == "__main__":
 
         args.target_dataset = purpose
 
-        medmcqa_df = pd.DataFrame(subgraph_builder.dataset[args.target_dataset])[:500]
+        medmcqa_df = pd.DataFrame(subgraph_builder.dataset[args.target_dataset])
 
-        # iterate over medmcqa_df and add the questions to the graph
+        question_uid_to_row_id_map = {}
+        # iterate over medmcqa_df and create a graph per question
         for i, row in medmcqa_df.iterrows():
 
             subgraph_builder.nx_subgraph = nx.Graph()
@@ -56,6 +57,7 @@ if __name__ == "__main__":
             question = row['question']
             answer_choices = [row['opa'], row['opb'], row['opc'], row['opd']]
             correct_answer = row['cop']
+            row_id = row['id']
 
             question_entities_list, question_entities_indices_list = medical_ner(question, subgraph_builder.node_embeddings, node_indices_list, subgraph_builder.kg)
 
@@ -73,7 +75,7 @@ if __name__ == "__main__":
             if len(question_entities_list + answer_entities_list) == 0:
                 continue
 
-            subgraph_builder.nx_subgraph = initiate_question_graph(subgraph_builder.nx_subgraph, question, answer_choices, correct_answer, question_entities_indices_list, answer_entities_dict, subgraph_builder.kg)
+            subgraph_builder.nx_subgraph = initiate_question_graph(subgraph_builder.nx_subgraph, question, answer_choices, correct_answer, question_entities_indices_list, answer_entities_dict, subgraph_builder.kg, question_index=int(i))
 
             extracted_edges, extracted_edge_indices = subgraph_builder.extract_knowledge_from_kg(question, hops=2, neighbors_per_hop=10, entities_list=question_entities_list+answers_entities_list)
 

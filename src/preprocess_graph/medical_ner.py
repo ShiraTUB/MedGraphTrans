@@ -1,7 +1,7 @@
 import networkx as nx
 import numpy as np
 import openai
-
+import torch
 from config import OPENAI_API_KEY
 from transformers import pipeline
 
@@ -59,7 +59,7 @@ def embed_tokens(tokens_list: list) -> list:
     for token in tokens_list:
         try:
             embeddings = openai.Embedding.create(input=[token], model="text-embedding-ada-002")['data'][0]['embedding']
-            embeddings = np.reshape(np.asarray(embeddings), (-1, np.asarray(embeddings).shape[0]))
+            embeddings = torch.tensor(embeddings).unsqueeze(0)
 
             tokens_embeddings.append(embeddings)
         except Exception as e:
@@ -86,10 +86,10 @@ def find_closest_nodes(entities_embeddings_list: [np.ndarray], graph_node_embedd
     # _, I = index.search(np.concatenate(entities_embeddings_list), 1)
 
     # Calculate the pairwise L2 norms
-    differences = np.concatenate(entities_embeddings_list)[:, np.newaxis, :] - graph_node_embeddings.numpy()[np.newaxis, :, :]
-
-    l2_norms = np.sqrt(np.sum(differences ** 2, axis=-1))
-    closest_embeddings_indices = np.argmin(l2_norms, axis=1)
+    # differences = np.concatenate(entities_embeddings_list)[:, np.newaxis, :] - graph_node_embeddings.numpy()[np.newaxis, :, :]
+    distances = torch.norm(torch.cat(entities_embeddings_list).unsqueeze(1) - graph_node_embeddings.unsqueeze(0), p=2, dim=2)
+    # l2_norms = np.sqrt(np.sum(differences ** 2, axis=-1))
+    closest_embeddings_indices = torch.min(distances, dim=-1).indices
 
     for i in closest_embeddings_indices:
         closest_node_index = node_indices_list[i]
