@@ -13,8 +13,7 @@ from config import ROOT_DIR
 
 parser = argparse.ArgumentParser(description='Training HGT on PrimeKG + Medmcqa')
 parser.add_argument('--dataset_path', type=str, default='datasets/merged_hetero_dataset/processed_graph_1000_train_val_masked_with_edge_uids_and_neg_edges.pickle', help='Path of the processed dataset')
-parser.add_argument('--dataset_folders_paths', type=List[str], default=['datasets/raw_graph_dataset_with_negative_edges/train', 'datasets/raw_graph_dataset_with_negative_edges/validation'],
-                    help='Paths to the folders containing raw graphs datasets')
+parser.add_argument('--dataset_folders_paths', type=List[str], default=['datasets/graph_dataset_30_11_23/train'], help='Paths to the folders containing raw graphs datasets')
 parser.add_argument('--experiment_output_path', type=str, default='experiments', help='Path of the target experiments folder')
 parser.add_argument('--prime_kg_dataset', type=str, default='datasets/primeKG_nx_medium.pickle', help='PrimeKG pickle path')
 

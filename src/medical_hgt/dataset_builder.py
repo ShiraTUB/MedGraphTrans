@@ -34,9 +34,7 @@ class MedicalQADatasetBuilder:
 
         # todo: fix later
         qa_dataset = load_dataset('medmcqa')
-        train_medmcqa = pd.DataFrame(qa_dataset['train'])[:500]
-        val_medmcqa = pd.DataFrame(qa_dataset['validation'])[:500]
-        self.qa_dataset = pd.concat([train_medmcqa, val_medmcqa])
+        self.qa_dataset = pd.DataFrame(qa_dataset['train'])[:6102]
 
         self.num_val_samples = int(len(self.raw_data_list) * val_ratio)
         self.num_test_samples = int(len(self.raw_data_list) * test_ratio)
