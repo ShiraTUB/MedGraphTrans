@@ -59,29 +59,29 @@ if __name__ == "__main__":
             correct_answer = row['cop']
             row_id = row['id']
 
-            question_entities_list, question_entities_indices_list = medical_ner(question, subgraph_builder.node_embeddings, node_indices_list, subgraph_builder.kg)
+            entities_list, entities_indices_list, num_entities_list = medical_ner([question] + answer_choices, subgraph_builder.node_embeddings, node_indices_list, subgraph_builder.kg)
 
+            # reconstruct answer indices for initiating the question graph:
+            start = num_entities_list[0]
+            end = start + num_entities_list[1]
+            index = 2
             answer_entities_dict = {}
-            answer_entities_list = []
 
-            for answer_choice in answer_choices:
-                answer_entities, answer_entities_indices_list = medical_ner(answer_choice, subgraph_builder.node_embeddings, node_indices_list, subgraph_builder.kg)
-                answer_entities_dict[answer_choice] = answer_entities_indices_list
-                answer_entities_list.append(answer_entities)
+            for choice in answer_choices:
+                answer_entities_dict[choice] = entities_indices_list[start:end]
+                start = end
+                end += num_entities_list[min(index, len(num_entities_list)-1)]
+                index += 1
 
-            # Flatten answer_entities_list
-            answers_entities_list = [entity for entities in answer_entities_list for entity in entities]
-
-            if len(question_entities_list + answer_entities_list) == 0:
+            if len(entities_list) == 0:
                 continue
 
-            subgraph_builder.nx_subgraph = initiate_question_graph(subgraph_builder.nx_subgraph, question, answer_choices, correct_answer, question_entities_indices_list, answer_entities_dict, subgraph_builder.kg, question_index=int(i))
+            subgraph_builder.nx_subgraph = initiate_question_graph(subgraph_builder.nx_subgraph, question, answer_choices, correct_answer, entities_indices_list[:num_entities_list[0]], answer_entities_dict, subgraph_builder.kg, question_index=int(i))
 
-            extracted_edges, extracted_edge_indices = subgraph_builder.extract_knowledge_from_kg(question, hops=2, neighbors_per_hop=10, entities_list=question_entities_list+answers_entities_list)
+            extracted_edges, extracted_edge_indices = subgraph_builder.extract_knowledge_from_kg(question, hops=2, neighbors_per_hop=10, entities_list=entities_list)
 
             if extracted_edge_indices is not None:
                 subgraph_builder.expand_graph_with_knowledge(extracted_edge_indices)
 
             pickle.dump(subgraph_builder.nx_subgraph, open(os.path.join(ROOT_DIR, args.dataset_target_path, args.target_dataset, f'graph_{i}.pickle'), 'wb'))
             print('processed {} out of {} rows'.format(i, len(medmcqa_df)))
-

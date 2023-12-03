@@ -7,66 +7,81 @@ from transformers import pipeline
 
 openai.api_key = OPENAI_API_KEY
 
+# Initialize the token classifier and embedding model
+token_classifier = pipeline("token-classification", model="ukkendane/bert-medical-ner")
 
-def medical_ner(query: str, knowledge_graph_embeddings: np.ndarray, node_indices_list: list, prime_kg: nx.Graph) -> (list, list):
-    tokens = classify_tokens(query)
+
+# embedding_model = openai.Embedding.create(input=[], model="text-embedding-ada-002")
+
+
+def medical_ner(query_list: [str], knowledge_graph_embeddings: np.ndarray, node_indices_list: list, prime_kg: nx.Graph) -> (list, list, list):
+    tokens = token_classifier(query_list)
     clean_tokens_list = clean_tokens(tokens)
-    entities_embeddings_list = embed_tokens(clean_tokens_list)
+
+    # Flatten tokens list before embedding them, store the length of each sublist for reconstruction
+    flattened_tokens = [token for tokens_sublist in clean_tokens_list for token in tokens_sublist]
+    num_entities_list = [len(sublist) for sublist in clean_tokens_list]
+
+    # Embedd tokens
+    entities_embeddings_list = embed_tokens(flattened_tokens)
 
     if len(entities_embeddings_list) == 0:
         return [], []
 
+    # Find the closest kg nodes
     closest_entities, closest_entities_indices = find_closest_nodes(entities_embeddings_list, knowledge_graph_embeddings, node_indices_list, prime_kg)
 
-    return closest_entities, closest_entities_indices
+    # # Reconstruct the output nested lists
+    # entities, entities_indices = [], []
+    # start = 0
+    # for num_entities in num_entities_list:
+    #     end = start + num_entities
+    #     entities.append(closest_entities[start:end])
+    #     entities_indices.append(closest_entities_indices[start:end])
+    #     start = end
+
+    return closest_entities, closest_entities_indices, num_entities_list
 
 
-def classify_tokens(query: str) -> list:
-    token_classifier = pipeline("token-classification", model="ukkendane/bert-medical-ner")
-    return token_classifier(query)
+def clean_tokens(tokens_list: [[str]]) -> list:
+    clean_tokens_list = []
 
+    for tokens in tokens_list:
+        current_entity, current_entity_type = "", ""
+        cleaned_tokens = []
+        for token in tokens:
+            if token['entity'].startswith('B_'):
+                if current_entity and current_entity_type != 'person' and current_entity_type != 'pronoun':
+                    cleaned_tokens.append(current_entity)
+                current_entity = token['word']
+                current_entity_type = token['entity'][2:]
+            elif token['entity'].startswith('I_') and '##' in token['word']:
+                current_entity += token['word'].replace('##', '')
+            elif token['entity'].startswith('I_'):
+                current_entity += " " + token['word']
+            else:
+                if current_entity:
+                    cleaned_tokens.append(current_entity)
+                current_entity = ""
+                current_entity_type = ""
 
-def clean_tokens(tokens: list) -> list:
-    clean_tokens = []
-    current_entity = ""
-    current_entity_type = ""
+        if current_entity and current_entity_type != 'person' and current_entity_type != 'pronoun':
+            cleaned_tokens.append(current_entity)
 
-    for token in tokens:
-        if token['entity'].startswith('B_'):
-            if current_entity and current_entity_type != 'person' and current_entity_type != 'pronoun':
-                clean_tokens.append(current_entity)
-            current_entity = token['word']
-            current_entity_type = token['entity'][2:]
-        elif token['entity'].startswith('I_') and '##' in token['word']:
-            current_entity += token['word'].replace('##', '')
-        elif token['entity'].startswith('I_'):
-            current_entity += " " + token['word']
-        else:
-            if current_entity:
-                clean_tokens.append(current_entity)
-            current_entity = ""
-            current_entity_type = ""
+        clean_tokens_list.append(cleaned_tokens)
 
-    if current_entity and current_entity_type != 'person' and current_entity_type != 'pronoun':
-        clean_tokens.append(current_entity)
-
-    return clean_tokens
+    return clean_tokens_list
 
 
 def embed_tokens(tokens_list: list) -> list:
-    tokens_embeddings = []
+    try:
+        embeddings = openai.Embedding.create(input=tokens_list, model="text-embedding-ada-002")['data']
+        embeddings = [torch.tensor(item['embedding']).unsqueeze(0) for item in embeddings]
 
-    for token in tokens_list:
-        try:
-            embeddings = openai.Embedding.create(input=[token], model="text-embedding-ada-002")['data'][0]['embedding']
-            embeddings = torch.tensor(embeddings).unsqueeze(0)
-
-            tokens_embeddings.append(embeddings)
-        except Exception as e:
-            print("Error: {}, String: {}".format(e, token))
-            continue
-
-    return tokens_embeddings
+        return embeddings
+    except Exception as e:
+        print(f"Error in embedding tokens: {e}")
+        return []
 
 
 def find_closest_nodes(entities_embeddings_list: [np.ndarray], graph_node_embeddings: np.ndarray, node_indices_list: list, prime_kg: nx.Graph) -> (list, list):
