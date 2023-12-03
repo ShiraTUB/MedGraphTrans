@@ -177,7 +177,7 @@ def compute_link_prediction_loss(pos_preds: torch.Tensor, neg_preds: torch.Tenso
     return total_loss
 
 
-def train_model(medical_hgt, llm, split_loaders, device, file_name, prime_kg, split_qa_dataset, num_epochs=30, lr=0.001):
+def train_model(medical_hgt, llm, split_loaders, device, file_name, qa_dataset, prime_kg, num_epochs=30, lr=0.001):
     medical_hgt = medical_hgt.to(device)
     llm = llm.to(device)
 
@@ -190,7 +190,6 @@ def train_model(medical_hgt, llm, split_loaders, device, file_name, prime_kg, sp
     print(f'start time: {start_time}; will save results to {file_name}')
 
     train_loader = split_loaders['train']
-    train_qa_dataset_df = split_qa_dataset['train']
 
     epoch_results = []
 
@@ -231,9 +230,10 @@ def train_model(medical_hgt, llm, split_loaders, device, file_name, prime_kg, sp
             confidence_diffs_per_question = []  # a list of tuples (question_embeddings, conf_diffs_dict_per_question)
             # compute the llm's feedback per question in the batch
             for node_index, question_node_representation in enumerate(z_dict['question']):
+                qa_index = batch['question'].node_uid[node_index].item()
                 subgraph_nodes_uid_dict = find_subgraph_bfs(batch, node_index, 'question')
-                prompt_dict = dict(train_qa_dataset_df.iloc[node_index].drop(['id', 'cop', 'exp']))
-                correct_answer = train_qa_dataset_df.iloc[node_index]['cop']
+                prompt_dict = dict(qa_dataset.iloc[qa_index].drop(['id', 'cop', 'exp']))
+                correct_answer = qa_dataset.iloc[qa_index]['cop']
                 current_confidence_diffs_dict = llm(subgraph_nodes_uid_dict, prime_kg, prompt_dict, correct_answer)
                 confidence_diffs_per_question.append((question_node_representation, current_confidence_diffs_dict))
                 break

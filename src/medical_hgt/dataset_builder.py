@@ -46,11 +46,8 @@ class MedicalQADatasetBuilder:
         self.negative_sampling_ratio = negative_sampling_ratio
 
         self.processed_train_dataset = self.processed_data_list[:self.num_train_samples].copy()
-        self.train_qa_dataset = self.qa_dataset.iloc[:self.num_train_samples]
         self.processed_val_dataset = self.processed_data_list[: self.num_train_samples + self.num_val_samples].copy()
-        self.val_qa_dataset = self.qa_dataset.iloc[: self.num_train_samples + self.num_val_samples]
         self.processed_test_dataset = self.processed_data_list.copy()
-        self.test_qa_dataset = self.qa_dataset
 
         # shuffle val and test datasets
         val_indices = list(range(len(self.processed_val_dataset)))
@@ -64,9 +61,6 @@ class MedicalQADatasetBuilder:
         combined_test = list(zip(self.processed_test_dataset, test_indices))
         random.shuffle(combined_test)
         self.processed_test_dataset, test_indices_shuffled = zip(*combined_test)
-
-        self.val_qa_dataset = self.val_qa_dataset.iloc[list(val_indices_shuffled)]
-        self.test_qa_dataset = self.test_qa_dataset.iloc[list(test_indices_shuffled)]
 
         self.train_loader = DataLoader(self.processed_train_dataset, batch_size=batch_size)
         self.train_mini_batches = self.preprocess_batches(self.train_loader)
