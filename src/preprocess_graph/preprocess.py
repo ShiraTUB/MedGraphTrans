@@ -1,11 +1,9 @@
 import os
 import argparse
 import pickle
-import torch
 
 import networkx as nx
 import pandas as pd
-from datasets import load_dataset
 
 from config import ROOT_DIR
 from KnowledgeExtraction.subgraph_builder import SubgraphBuilder
