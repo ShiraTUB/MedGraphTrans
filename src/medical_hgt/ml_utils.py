@@ -1,6 +1,7 @@
 import openai
 import torch
 
+import torch.nn.functional as F
 from torch import Tensor
 from collections import deque
 from torch_geometric.data import HeteroData
@@ -9,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 from torch_geometric.nn.parameter_dict import ParameterDict
 from torch_geometric.typing import Adj, EdgeType, NodeType, SparseTensor
 from torch_geometric.utils import is_sparse, to_edge_index
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from config import OPENAI_API_KEY
 

@@ -106,16 +106,56 @@ class MedicalHGT(torch.nn.Module):
 
 
 class LLM(torch.nn.Module):
-    # def __init__(self, model_name="meta-llama/Llama-2-7b-chat-hf"):
-    #     super().__init__()
-    #     self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-    #     self.model = AutoModelForCausalLM.from_pretrained(model_name)
+    def __init__(self, model_name="meta-llama/Llama-2-7b-chat-hf"):
+        super().__init__()
+        self.model = AutoModelForCausalLM.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-    def forward(self, knowledge_nodes_dict, nx_graph_data, dataset_question_dict, correct_answer):
+    def get_predictions(self, sentence):
+        inputs = self.tokenizer.encode(sentence, return_tensors="pt")
+        with torch.no_grad():
+            outputs = self.model(inputs)
+            predictions = outputs[0]
+        return predictions
 
-        correct_answer_dict = {0: 'opa', 1: 'opb', 2: 'opc', 3: 'opd'}
-        output_instructions = f'how confident are you that the correct answer is {correct_answer_dict[correct_answer]}? Return a float between 0 and 1.'
-        confidence_without_context = query_chatbot(str(dataset_question_dict), output_instructions)
+    def get_confidence(self, sentence):
+
+        predictions = self.get_predictions(sentence)
+
+        # Get the next token candidates
+        next_token_candidates_tensor = predictions[0, -1, :]
+
+        # Get most probable tokens
+        num_tokens = 100
+        most_probable_tokens_indices = torch.topk(next_token_candidates_tensor, num_tokens).indices.tolist()
+
+        # Get all tokens' probabilities
+        all_tokens_probabilities = torch.nn.functional.softmax(next_token_candidates_tensor, dim=-1)
+
+        top_tokens_probabilities = all_tokens_probabilities[most_probable_tokens_indices].tolist()
+
+        # Decode the top tokens back to words
+        top_tokens = [self.tokenizer.decode([idx]).strip() for idx in most_probable_tokens_indices]
+
+        correct_answer_token_index = top_tokens.index('Yes')
+        wrong_answer_token_index = top_tokens.index('No')
+
+        # Return the top k candidates and their probabilities.
+        return top_tokens_probabilities[correct_answer_token_index]
+
+    def forward(self, knowledge_nodes_dict, nx_graph_data, question_dict, correct_answer):
+
+        correct_answer_map = {0: 'A', 1: 'B', 2: 'C', 3: 'D'}
+        output_instructions = f'Is {correct_answer_map[correct_answer]} the correct answer? Reply only in Yes or No.'
+
+        prompt = ("Question: {}\n"
+                  "A) {}\n"
+                  "B) {}\n"
+                  "C) {}\n"
+                  "D) {}\n"
+                  "{}").format(question_dict['question'], question_dict['opa'], question_dict['opb'], question_dict['opc'], question_dict['opd'], output_instructions)
+
+        confidence_without_context = self.get_confidence(prompt)
 
         confidence_diffs_dict = {}  # a dict of dicts in the form {node_type_0: {node_index_0: conf_diff_0, node_index_1: conf_diff_1...}, ...}
         for node_type, nodes_uids in knowledge_nodes_dict.items():
@@ -123,9 +163,9 @@ class LLM(torch.nn.Module):
                 confidence_diffs_dict[node_type] = {}
                 for node_uid in nodes_uids:
                     node_name = nx_graph_data.nodes[node_uid.item()]['name']
-                    dataset_question_dict['context'] = f'The {node_type} {node_name}.'
-                    confidence_with_context = query_chatbot(str(dataset_question_dict), output_instructions)
-                    llm_confidence_diff = compute_llm_confidence_diff(float(confidence_without_context), float(confidence_with_context))
+                    context = f'Context: The {node_type} {node_name}.\n'
+                    confidence_with_context = self.get_confidence(context + prompt)
+                    llm_confidence_diff = compute_llm_confidence_diff(confidence_without_context, confidence_with_context)
                     confidence_diffs_dict[node_type][node_uid] = llm_confidence_diff
 
         return confidence_diffs_dict
