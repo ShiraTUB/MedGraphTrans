@@ -4,11 +4,13 @@ import gc
 
 import torch
 import numpy as np
+import concurrent.futures
 
 from torch import cuda
 import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
 from dataclasses import dataclass
+
 
 from ml_utils import find_subgraph_bfs, find_most_relevant_nodes
 
@@ -29,7 +31,7 @@ def get_masked(target, batch, split_name):
     return target if mask_name not in batch else target[batch[mask_name]]
 
 
-def evaluate_model(medical_hgt, split_loaders, split_name, device, prime_kg, frac=1.0):
+def evaluate_model(medical_hgt, llm, split_loaders, split_name, device, qa_dataset, prime_kg, frac=1.0):
     """
     Args:
     model (torch.nn.Module): The model to evaluate.
@@ -42,6 +44,7 @@ def evaluate_model(medical_hgt, split_loaders, split_name, device, prime_kg, fra
     float: The ROC AUC score for the evaluated split.
     """
     medical_hgt.eval()
+    llm.eval()
 
     pos_y_true_tensors = []
     neg_y_true_tensors = []
@@ -58,6 +61,8 @@ def evaluate_model(medical_hgt, split_loaders, split_name, device, prime_kg, fra
         batch = batch.to(device)
 
         with torch.no_grad():
+
+            # Forward pass on the link prediction model
             pos_pred, neg_pred, z_dict = medical_hgt(batch)
 
             pos_eval_y = batch["question", "question_correct_answer", "answer"].edge_label.squeeze()
@@ -74,17 +79,22 @@ def evaluate_model(medical_hgt, split_loaders, split_name, device, prime_kg, fra
             pos_y_true_tensors.append(pos_eval_y.detach())
             neg_y_true_tensors.append(neg_eval_y.detach())
 
-            knowledge_nodes_per_question_dict = {}
+            # Forward pass on the LLM
+            confidence_diffs_per_question = []  # a list of tuples (question_embeddings, conf_diffs_dict_per_question)
+            # compute the llm's feedback per question in the batch
             for node_index, question_node_representation in enumerate(z_dict['question']):
+                qa_index = batch['question'].node_uid[node_index].item()
                 subgraph_nodes_uid_dict = find_subgraph_bfs(batch, node_index, 'question')
-                question_node_uid = batch['question'].node_uid[node_index]
-                most_relevant_nodes = find_most_relevant_nodes(batch, z_dict, question_node_representation, subgraph_nodes_uid_dict, prime_kg)
-                knowledge_nodes_per_question_dict[question_node_uid] = most_relevant_nodes
+                prompt_dict = dict(qa_dataset.iloc[qa_index].drop(['id', 'cop', 'exp']))
+                correct_answer = qa_dataset.iloc[qa_index]['cop']
+                current_confidence_diffs_dict = llm(subgraph_nodes_uid_dict, prime_kg, prompt_dict, correct_answer)
+                confidence_diffs_per_question.append((question_node_representation, current_confidence_diffs_dict))
 
         if batch_num >= num_batches:
             break
 
     medical_hgt.train()
+    llm.train()
 
     pos_pred = torch.cat(pos_y_pred_tensors, dim=0).numpy()
     neg_pred = torch.cat(neg_y_pred_tensors, dim=0).numpy()
@@ -94,7 +104,10 @@ def evaluate_model(medical_hgt, split_loaders, split_name, device, prime_kg, fra
     pred = np.concatenate([pos_pred, neg_pred])
     true = np.concatenate([pos_true, neg_true])
 
-    return roc_auc_score(true, pred), knowledge_nodes_per_question_dict
+    link_prediction_accuracy = roc_auc_score(true, pred)
+    llm_accuracy = compute_llm_accuracy(list(confidence_diffs_per_question[:, 1]))
+
+    return link_prediction_accuracy + (llm_accuracy * 0.1)
 
 
 @dataclass(frozen=True)
@@ -228,7 +241,31 @@ def train_model(medical_hgt, llm, split_loaders, device, file_name, qa_dataset, 
                 neg_train_y = neg_train_y.view(1)
 
             confidence_diffs_per_question = []  # a list of tuples (question_embeddings, conf_diffs_dict_per_question)
+            question_dict_list, correct_answers, knowledge_nodes_dict_list = [], [], []
             # compute the llm's feedback per question in the batch
+            with concurrent.futures.ProcessPoolExecutor() as executor:
+                for node_index, question_node_representation in enumerate(z_dict['question']):
+                    qa_index = batch['question'].node_uid[node_index].item()
+                    subgraph_nodes_uid_dict = find_subgraph_bfs(batch, node_index, 'question')
+                    prompt_dict = dict(qa_dataset.iloc[qa_index].drop(['id', 'cop', 'exp']))
+                    correct_answer = qa_dataset.iloc[qa_index]['cop']
+
+                    # Collect inputs for batch processing
+                    question_dict_list.append(prompt_dict)
+                    correct_answers.append(correct_answer)
+                    knowledge_nodes_dict_list.append(subgraph_nodes_uid_dict)
+
+                    if len(question_dict_list) >= len(batch):
+                        # Process the batch
+                        result = llm.batch_forward(knowledge_nodes_dict_list, prime_kg, question_dict_list, correct_answers)
+
+                        # Store or process the result as needed
+
+                        # Clear batch inputs
+                        question_dict_list.clear()
+                        correct_answers.clear()
+                        knowledge_nodes_dict_list.clear()
+
             for node_index, question_node_representation in enumerate(z_dict['question']):
                 qa_index = batch['question'].node_uid[node_index].item()
                 subgraph_nodes_uid_dict = find_subgraph_bfs(batch, node_index, 'question')
@@ -236,7 +273,6 @@ def train_model(medical_hgt, llm, split_loaders, device, file_name, qa_dataset, 
                 correct_answer = qa_dataset.iloc[qa_index]['cop']
                 current_confidence_diffs_dict = llm(subgraph_nodes_uid_dict, prime_kg, prompt_dict, correct_answer)
                 confidence_diffs_per_question.append((question_node_representation, current_confidence_diffs_dict))
-                break
 
             link_prediction_loss = compute_link_prediction_loss(pos_train_pred, neg_train_pred, pos_train_y, neg_train_y)
             llm_relevancy_loss = compute_llm_relevancy_loss(batch, z_dict, confidence_diffs_per_question)
@@ -251,8 +287,9 @@ def train_model(medical_hgt, llm, split_loaders, device, file_name, qa_dataset, 
             pos_y_true_tensors.append(pos_train_y.detach().long())
             neg_y_true_tensors.append(neg_train_y.detach().long())
 
+
             train_losses.append(total_loss.detach().item())
-            break
+
 
         train_end_time = get_time()
 
@@ -273,7 +310,7 @@ def train_model(medical_hgt, llm, split_loaders, device, file_name, qa_dataset, 
 
         # The validation ROC AUC is computed by running through the validation set
         # at the end of every epoch.
-        val_acc, val_most_relevant_nodes = evaluate_model(medical_hgt, split_loaders, 'val', device, prime_kg=prime_kg)
+        val_acc = evaluate_model(medical_hgt, llm, split_loaders, 'val', device, qa_dataset=qa_dataset, prime_kg=prime_kg)
 
         epoch_result = EpochResult(
             epoch_num=epoch_num,
@@ -288,9 +325,10 @@ def train_model(medical_hgt, llm, split_loaders, device, file_name, qa_dataset, 
         print(f'\r{epoch_result}')
 
     state_dict = copy.deepcopy(medical_hgt.state_dict())
-    test_acc, test_most_relevant_nodes = evaluate_model(medical_hgt, split_loaders, 'test', device, prime_kg=prime_kg)
+    test_acc = evaluate_model(medical_hgt, llm, split_loaders, 'test', device, qa_dataset=qa_dataset, prime_kg=prime_kg)
 
     medical_hgt.eval()
+    llm.eval()
 
     end_time = get_time()
     medical_hgt_result = ModelResult(start_time, end_time, epoch_results, state_dict, round(test_acc, 4))
@@ -337,3 +375,11 @@ def compute_llm_relevancy_loss(batch, z_dict, gradients_per_questions_list):
             num_nodes += len(gradients_list)
 
     return loss / num_nodes
+
+
+def compute_llm_accuracy(confidence_diffs_list: list) -> float:
+    diffs_tensor = torch.tensor(confidence_diffs_list)
+    accuracy = torch.sum(diffs_tensor >= 0).item()
+    accuracy /= len(confidence_diffs_list)
+
+    return accuracy

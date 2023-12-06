@@ -108,64 +108,105 @@ class MedicalHGT(torch.nn.Module):
 class LLM(torch.nn.Module):
     def __init__(self, model_name="meta-llama/Llama-2-7b-chat-hf"):
         super().__init__()
-        self.model = AutoModelForCausalLM.from_pretrained(model_name)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-    def get_predictions(self, sentence):
-        inputs = self.tokenizer.encode(sentence, return_tensors="pt")
+        # self.tokenizer = AutoTokenizer.from_pretrained(model_name, torch_dtype="auto")
+        # self.model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto", load_in_4bit=True, device_map="auto")
+        # self.tokenizer.use_default_system_prompt = False
+        # self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, torch_dtype="auto")
+        self.model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto")
+        self.tokenizer.pad_token = self.tokenizer.eos_token
+
+    def get_predictions(self, sentence_token_ids_list):
         with torch.no_grad():
-            outputs = self.model(inputs)
-            predictions = outputs[0]
-        return predictions
+            outputs = self.model(**sentence_token_ids_list)
+            predictions_list = [output.unsqueeze(0) for output in outputs.logits]
+        return predictions_list
 
-    def get_confidence(self, sentence):
+    def get_confidence(self, sentence_token_ids_list):
 
-        predictions = self.get_predictions(sentence)
+        confidence_list = []
+        predictions_list = self.get_predictions(sentence_token_ids_list)
 
-        # Get the next token candidates
-        next_token_candidates_tensor = predictions[0, -1, :]
+        for prediction in predictions_list:
+            # Get the next token candidates
+            next_token_candidates_tensor = prediction[0, -1, :]
+            next_token_candidates_tensor = next_token_candidates_tensor.to(torch.float32)
 
-        # Get most probable tokens
-        num_tokens = 100
-        most_probable_tokens_indices = torch.topk(next_token_candidates_tensor, num_tokens).indices.tolist()
+            # Get most probable tokens
+            num_tokens = 1000
+            most_probable_tokens_indices = torch.topk(next_token_candidates_tensor, num_tokens).indices.tolist()
 
-        # Get all tokens' probabilities
-        all_tokens_probabilities = torch.nn.functional.softmax(next_token_candidates_tensor, dim=-1)
+            # Get all tokens' probabilities
+            all_tokens_probabilities = torch.nn.functional.softmax(next_token_candidates_tensor, dim=-1)
 
-        top_tokens_probabilities = all_tokens_probabilities[most_probable_tokens_indices].tolist()
+            top_tokens_probabilities = all_tokens_probabilities[most_probable_tokens_indices].tolist()
 
-        # Decode the top tokens back to words
-        top_tokens = [self.tokenizer.decode([idx]).strip() for idx in most_probable_tokens_indices]
+            # Decode the top tokens back to words
+            top_tokens = [self.tokenizer.decode([idx]).strip() for idx in most_probable_tokens_indices]
 
-        correct_answer_token_index = top_tokens.index('Yes')
-        wrong_answer_token_index = top_tokens.index('No')
+            correct_answer_token_index = top_tokens.index('Yes')
+            wrong_answer_token_index = top_tokens.index('No')
 
-        # Return the top k candidates and their probabilities.
-        return top_tokens_probabilities[correct_answer_token_index]
+            confidence_list.append(top_tokens_probabilities[correct_answer_token_index])
 
-    def forward(self, knowledge_nodes_dict, nx_graph_data, question_dict, correct_answer):
+        return confidence_list
+
+    def forward(self, knowledge_nodes_dicts_list, nx_graph_data, question_dicts_list, correct_answers_list):
 
         correct_answer_map = {0: 'A', 1: 'B', 2: 'C', 3: 'D'}
-        output_instructions = f'Is {correct_answer_map[correct_answer]} the correct answer? Reply only in Yes or No.'
+        prompts = [("Question: {}\n"
+                    "A) {}\n"
+                    "B) {}\n"
+                    "C) {}\n"
+                    "D) {}\n"
+                    "{}").format(
+            question_dicts_list[i]['question'],
+            question_dicts_list[i]['opa'],
+            question_dicts_list[i]['opb'],
+            question_dicts_list[i]['opc'],
+            question_dicts_list[i]['opd'],
+            f'Is {correct_answer_map[correct_answers_list[i]]} the correct answer? Reply only in Yes or No.')
+            for i in range(len(correct_answers_list))]
 
-        prompt = ("Question: {}\n"
-                  "A) {}\n"
-                  "B) {}\n"
-                  "C) {}\n"
-                  "D) {}\n"
-                  "{}").format(question_dict['question'], question_dict['opa'], question_dict['opb'], question_dict['opc'], question_dict['opd'], output_instructions)
+        # Batch process all prompts (without context)
+        prompt_token_ids = self.tokenizer.batch_encode_plus(prompts, padding=True, truncation=True, return_tensors="pt")
+        self.unify_batch_encoding_device(prompt_token_ids)
+        batch_confidence_without_context = self.get_confidence(prompt_token_ids)
 
-        confidence_without_context = self.get_confidence(prompt)
-
+        # Process contexts
         confidence_diffs_dict = {}  # a dict of dicts in the form {node_type_0: {node_index_0: conf_diff_0, node_index_1: conf_diff_1...}, ...}
-        for node_type, nodes_uids in knowledge_nodes_dict.items():
-            if node_type not in confidence_diffs_dict:
-                confidence_diffs_dict[node_type] = {}
+        for idx, knowledge_nodes_dict in enumerate(knowledge_nodes_dicts_list):
+            # We batch process per node type
+            for node_type, nodes_uids in knowledge_nodes_dict.items():
+                question_with_contexts = []
+                node_ids = []
+                if node_type not in confidence_diffs_dict:
+                    confidence_diffs_dict[node_type] = {}
+
                 for node_uid in nodes_uids:
+                    # Create Context string
                     node_name = nx_graph_data.nodes[node_uid.item()]['name']
                     context = f'Context: The {node_type} {node_name}.\n'
-                    confidence_with_context = self.get_confidence(context + prompt)
-                    llm_confidence_diff = compute_llm_confidence_diff(confidence_without_context, confidence_with_context)
-                    confidence_diffs_dict[node_type][node_uid] = llm_confidence_diff
+
+                    question_with_contexts.append(context + prompts[idx])
+                    node_ids.append(node_uid)
+
+                # Batch process questions with contexts
+                batch_question_with_context_ids = self.tokenizer.batch_encode_plus(question_with_contexts, padding=True, truncation=True, return_tensors="pt")
+                self.unify_batch_encoding_device(batch_question_with_context_ids)
+                question_confidence_with_context = self.get_confidence(batch_question_with_context_ids)
+
+                # Compute confidence diffs
+                question_confidence_diffs_list = compute_llm_confidence_diff(batch_confidence_without_context[idx], question_confidence_with_context)
+                for index, conf_diff in enumerate(question_confidence_diffs_list):
+                    confidence_diffs_dict[node_type][node_ids[index].item()] = (idx, conf_diff)
 
         return confidence_diffs_dict
+
+    def unify_batch_encoding_device(self, batch_encoding):
+        for t in batch_encoding:
+            if torch.is_tensor(batch_encoding[t]):
+                batch_encoding[t] = batch_encoding[t].to(self.model.device)
+

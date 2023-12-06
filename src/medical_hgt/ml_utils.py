@@ -11,6 +11,8 @@ from torch_geometric.nn.parameter_dict import ParameterDict
 from torch_geometric.typing import Adj, EdgeType, NodeType, SparseTensor
 from torch_geometric.utils import is_sparse, to_edge_index
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import LlamaTokenizer, LlamaForCausalLM
+from transformers import GPT2Tokenizer, TFGPT2Model
 
 from config import OPENAI_API_KEY
 
@@ -244,8 +246,10 @@ def find_most_relevant_nodes(batch, z_dict, question_nodes_embedding, knowledge_
     relevant_nodes_list = []
     relevant_nodes_names, relevant_nodes_types = [], []
     for node_type, nodes_uids in knowledge_nodes_uid_dict.items():
+
         node_indices = [torch.where(batch[node_type].node_uid == x)[0][0] for x in nodes_uids]
-        node_embeddings = torch.index_select(z_dict[node_type], 0, torch.tensor(node_indices))
+        # Ensure that node_indices tensor is on the same device as z_dict[node_type]
+        node_embeddings = z_dict[node_type][torch.tensor(node_indices)]
 
         # Calculate the distance between the node embedding and the central node embedding
         distances = torch.norm(question_nodes_embedding.repeat(node_embeddings.size(0), 1) - node_embeddings, p=2, dim=1)
@@ -321,10 +325,10 @@ def find_subgraph_bfs(graph: HeteroData, start_node_index: int, start_node_type:
     return subgraph_dict
 
 
-def compute_llm_confidence_diff(confidence_without_context, confidence_with_context):
+def compute_llm_confidence_diff(confidence_without_context: float, confidence_with_context_list: list):
     # todo: work on logic
 
-    return confidence_with_context - confidence_without_context
+    return [confidence_with_context - confidence_without_context for confidence_with_context in confidence_with_context_list]
 
 
 def query_chatbot(prompt, output_instructions):
@@ -341,3 +345,58 @@ def query_chatbot(prompt, output_instructions):
     except Exception as e:
         print(f"API call failed with an exception: {e}")
         return -1
+
+#
+# class LLM(torch.nn.Module):
+#     def __init__(self, model_name="meta-llama/Llama-2-7b-chat-hf"):
+#         super().__init__()
+#
+#         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+#         self.model = AutoModelForCausalLM.from_pretrained(model_name)
+#         # self.tokenizer.use_default_system_prompt = False
+#
+#     def get_predictions(self, sentence_token_ids):
+#         with torch.no_grad():
+#             outputs = self.model(sentence_token_ids)
+#             predictions = outputs[0]
+#         return predictions
+#
+#     def get_confidence(self, sentence_token_ids):
+#
+#         predictions = self.get_predictions(sentence_token_ids)
+#
+#         # Get the next token candidates
+#         next_token_candidates_tensor = predictions[0, -1, :]
+#         next_token_candidates_tensor = next_token_candidates_tensor.to(torch.float32)
+#
+#         # Get most probable tokens
+#         num_tokens = 1000
+#         most_probable_tokens_indices = torch.topk(next_token_candidates_tensor, num_tokens).indices.tolist()
+#
+#         # Get all tokens' probabilities
+#         all_tokens_probabilities = torch.nn.functional.softmax(next_token_candidates_tensor, dim=-1)
+#
+#         top_tokens_probabilities = all_tokens_probabilities[most_probable_tokens_indices].tolist()
+#
+#         # Decode the top tokens back to words
+#         top_tokens = [self.tokenizer.decode([idx]).strip() for idx in most_probable_tokens_indices]
+#
+#         return top_tokens_probabilities[0]
+#
+#     def forward(self, original_prompt, list_of_contexts):
+#         prompt_token_ids = self.tokenizer.encode(original_prompt, return_tensors="pt")
+#         confidence_without_context = self.get_confidence(prompt_token_ids)
+#
+#         llm_confidence_diff_list = []  # a dict of dicts in the form {node_type_0: {node_index_0: conf_diff_0, node_index_1: conf_diff_1...}, ...}
+#         for context in list_of_contexts:
+#             context_prompt = f'Context: {context}.'
+#             context_token_ids = self.tokenizer.encode(context_prompt, return_tensors="pt")
+#             combined_tokens = torch.cat((context_token_ids, prompt_token_ids), dim=1)
+#             confidence_with_context = self.get_confidence(combined_tokens)
+#             llm_confidence_diff = compute_llm_confidence_diff(confidence_without_context, confidence_with_context)
+#             llm_confidence_diff_list.append(llm_confidence_diff)
+#
+#         return llm_confidence_diff_list
+
+
+
