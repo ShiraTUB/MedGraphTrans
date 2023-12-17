@@ -6,7 +6,6 @@ import networkx as nx
 import torch_geometric.transforms as T
 
 from typing import List, Tuple, Callable, Union
-
 from datasets import load_dataset
 from numpy import ndarray
 from torch_geometric.data import HeteroData
@@ -241,7 +240,7 @@ class SubgraphBuilder:
             self.hetero_data[e_type].edge_index = torch.transpose(torch.tensor(edge_types_index_dict[e_type]), 0, 1)
             self.hetero_data[e_type].edge_uid = torch.tensor(edge_types_uids_dict[e_type])
 
-        self.hetero_data = T.ToUndirected()(self.hetero_data)
+        self.hetero_data = T.ToUndirected(merge=False)(self.hetero_data)
 
         return self.hetero_data, edge_uid_offset
 

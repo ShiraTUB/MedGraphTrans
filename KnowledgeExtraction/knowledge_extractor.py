@@ -1,9 +1,8 @@
 import numpy as np
 import faiss
-
-from typing import Callable, Tuple, List,  Optional
-
 import torch
+
+from typing import Callable, Tuple, List, Optional
 from gensim.parsing.preprocessing import STOPWORDS
 from nltk import RegexpTokenizer
 from KnowledgeExtraction.trie_structure import Trie
