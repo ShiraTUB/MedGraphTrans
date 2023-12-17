@@ -19,9 +19,9 @@ parser = argparse.ArgumentParser(description='Preprocess KG on PrimeKG + Medmcqa
 
 parser.add_argument('--prime_kg_dataset', type=str, default='datasets/primeKG_nx_medium.pickle', help='PrimeKG pickle path')
 parser.add_argument('--prime_kg_embeddings_dataset', type=str, default='datasets/primeKG_embeddings_tensor.pt', help='primeKG embeddings pt path')
-parser.add_argument('--trie_path', type=str, default='datasets/trie.pickle', help='knowledge_graph_trie path, set to None if no trie is available')
+parser.add_argument('--trie_path', type=str, default=None, help='knowledge_graph_trie path, set to None if no trie is available')
 parser.add_argument('--qa_dataset_name', type=str, default='medmcqa', help='Name of dataset to download using datasets')
-parser.add_argument('--dataset_target_path', type=str, default='datasets/graph_dataset_30_11_23', help='Path of where to save the processed dataset')
+parser.add_argument('--dataset_target_path', type=str, default='datasets/', help='Path of where to save the processed dataset')
 parser.add_argument('--target_dataset', type=str, default='train', help='Use either train/validation/test dataset')
 
 args = parser.parse_args()
