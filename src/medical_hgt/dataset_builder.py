@@ -5,6 +5,7 @@ import random
 import torch
 import networkx as nx
 import pandas as pd
+import torch_geometric.transforms as T
 
 from itertools import chain
 from torch_geometric.loader import DataLoader
@@ -12,7 +13,7 @@ from torch_geometric.data import HeteroData
 from typing import List, Tuple
 from datasets import load_dataset
 
-from src.preprocess_graph.build_subgraph import convert_nx_to_hetero_data
+from src.utils import meta_relations_dict
 from config import ROOT_DIR
 
 
@@ -30,6 +31,7 @@ class MedicalQADatasetBuilder:
 
         self.raw_data_list = self.build_raw_data_list(paths_to_dataset)
         self.all_edges_dict = {}
+        self.subgraphs_dict = {}
         self.processed_data_list = self.build_processed_data_list()
 
         # todo: fix later
@@ -96,6 +98,8 @@ class MedicalQADatasetBuilder:
 
         for graph in self.raw_data_list:
             hetero_data, edge_uid_offset = convert_nx_to_hetero_data(graph, edge_uid_offset=edge_uid_offset)
+            question_uid = hetero_data['question'].node_uid.item()
+            self.subgraphs_dict[question_uid] = [(data['index'], data['type']) for node, data in graph.nodes(data=True) if data['type'] != 'question' and data['type'] != 'answer']
             processed_data_list.append(hetero_data)
 
             for edge_type in hetero_data.edge_types:
@@ -149,7 +153,7 @@ class MedicalQADatasetBuilder:
                 positive_edge_index_indices, positive_edge_label_index_indices = self.split_labels(batch, edge_index_uids_dict)
 
                 if positive_edge_index_indices is None:
-                    continue
+                    continue  # todo: find a better way to handle imbalanced batches - where all edges have been seen -> reshuffle?
 
                 positive_edge_index = batch[self.positive_relation_type].edge_index[:, positive_edge_index_indices]
                 positive_edge_label_index = batch[self.positive_relation_type].edge_index[:, positive_edge_label_index_indices]
@@ -286,3 +290,119 @@ def build_merged_graphs_raw_dataset(graphs_list):
         merged_graph.add_edges_from(graph.edges(data=True))
 
     return merged_graph
+
+
+def convert_nx_to_hetero_data(graph: nx.Graph, edge_uid_offset=0) -> Tuple[HeteroData, int]:
+    """
+
+    Args:
+        add_edge_weights:
+        graph: the nx.Graph from which the heteroData  should be created
+        edge_uid_offset: a pointer of the last added edge. Might be used across many transformed graph to keep track across batched/ datasets
+
+    Returns:
+        data: the HeteroData object created from the input graph
+        edge_types_uids_dict: a dictionary of all edge types with the corresponding edge_uids added to the graph (in the format edge_type: edge_uids_list)
+        edge_uid_offset: the updated edge_uid_offset
+
+
+    """
+
+    data = HeteroData()
+
+    node_types_embeddings_dict = {}
+    node_types_uids_dict = {}
+    edge_types_index_dict = {}
+    edge_types_uids_dict = {}
+
+    # Iterate over all edges:
+    for index, (s, t, edge_attr) in enumerate(graph.edges(data=True)):
+
+        relation = meta_relations_dict[edge_attr['relation']]
+
+        s_node = graph.nodes[s]
+        s_node_type = s_node['type']
+        s_node_embedding = torch.squeeze(s_node['embedding'], dim=1)
+        s_uid = s_node['index']
+
+        t_node = graph.nodes[t]
+        t_node_type = t_node['type']
+        t_node_embedding = torch.squeeze(t_node['embedding'], dim=1)
+        t_uid = t_node['index']
+
+        if s_node_type != relation[0]:
+            s_node_type, t_node_type = t_node_type, s_node_type
+            s_node_embedding, t_node_embedding = t_node_embedding, s_node_embedding
+            s_uid, t_uid = t_uid, s_uid
+
+        if s_node_type not in node_types_embeddings_dict:
+            node_types_embeddings_dict[s_node_type] = []
+            node_types_uids_dict[s_node_type] = []
+            s_node_index = len(node_types_embeddings_dict[s_node_type])
+            node_types_embeddings_dict[s_node_type].append(s_node_embedding)
+            node_types_uids_dict[s_node_type].append(s_uid)
+
+        elif s_uid not in node_types_uids_dict[s_node_type]:
+            s_node_index = len(node_types_embeddings_dict[s_node_type])
+            node_types_embeddings_dict[s_node_type].append(s_node_embedding)
+            node_types_uids_dict[s_node_type].append(s_uid)
+
+        else:
+            s_node_index = node_types_uids_dict[s_node_type].index(s_uid)
+
+        if t_node_type not in node_types_embeddings_dict:
+            node_types_embeddings_dict[t_node_type] = []
+            node_types_uids_dict[t_node_type] = []
+            t_node_index = len(node_types_embeddings_dict[t_node_type])
+            node_types_embeddings_dict[t_node_type].append(t_node_embedding)
+            node_types_uids_dict[t_node_type].append(t_uid)
+
+        elif t_uid not in node_types_uids_dict[t_node_type]:
+            t_node_index = len(node_types_embeddings_dict[t_node_type])
+            node_types_embeddings_dict[t_node_type].append(t_node_embedding)
+            node_types_uids_dict[t_node_type].append(t_uid)
+
+        else:
+            t_node_index = node_types_uids_dict[t_node_type].index(t_uid)
+
+        if relation not in edge_types_index_dict:
+            edge_types_index_dict[relation] = []
+            edge_types_index_dict[relation].append([s_node_index, t_node_index])
+            edge_types_uids_dict[relation] = []
+            edge_types_uids_dict[relation].append(edge_uid_offset)
+            edge_uid_offset += 1
+
+        elif [s_node_index, t_node_index] not in edge_types_index_dict[relation]:
+            edge_types_index_dict[relation].append([s_node_index, t_node_index])
+            edge_types_uids_dict[relation].append(edge_uid_offset)
+            edge_uid_offset += 1
+
+    # Iterate over nodes with no neighbors:
+    nodes_with_no_neighbors = [graph.nodes[node] for node in graph.nodes() if len(list(graph.neighbors(node))) == 0]
+    for node in nodes_with_no_neighbors:
+        node_type = node['type']
+        node_embedding = node['embedding']
+        node_uid = node['index']
+        if node_embedding.dim() == 2:
+            node_embedding = torch.squeeze(node_embedding, dim=1)
+        if node_type not in node_types_embeddings_dict:
+            node_types_embeddings_dict[node_type] = []
+            node_types_uids_dict[node_type] = []
+            node_types_embeddings_dict[node_type].append(node_embedding)
+            node_types_uids_dict[node_type].append(node_uid)
+
+        elif node_uid not in node_types_uids_dict[node_type]:
+            node_types_embeddings_dict[node_type].append(node_embedding)
+            node_types_uids_dict[node_type].append(node_uid)
+
+    for n_type in node_types_embeddings_dict.keys():
+        data[n_type].x = torch.stack(node_types_embeddings_dict[n_type], dim=0).type("torch.FloatTensor")
+        data[n_type].node_uid = torch.tensor(node_types_uids_dict[n_type])
+
+    for e_type in edge_types_index_dict.keys():
+        data[e_type].edge_index = torch.transpose(torch.tensor(edge_types_index_dict[e_type]), 0, 1)
+        data[e_type].edge_uid = torch.tensor(edge_types_uids_dict[e_type])
+
+    data = T.ToUndirected(merge=False)(data)
+
+    return data, edge_uid_offset
