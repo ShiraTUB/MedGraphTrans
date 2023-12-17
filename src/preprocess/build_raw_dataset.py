@@ -1,15 +1,19 @@
 import os
 import argparse
 import pickle
+import torch
+import openai
+import random
 
 import networkx as nx
 import pandas as pd
 
-from config import ROOT_DIR
+from config import ROOT_DIR, OPENAI_API_KEY
 from KnowledgeExtraction.subgraph_builder import SubgraphBuilder
-from src.preprocess_graph.build_subgraph import initiate_question_graph
 from src.utils import meta_relations_dict, embed_text
-from src.preprocess_graph.medical_ner import medical_ner
+from src.preprocess.medical_ner import medical_ner
+
+openai.api_key = OPENAI_API_KEY
 
 parser = argparse.ArgumentParser(description='Preprocess KG on PrimeKG + Medmcqa')
 
@@ -21,6 +25,48 @@ parser.add_argument('--dataset_target_path', type=str, default='datasets/graph_d
 parser.add_argument('--target_dataset', type=str, default='train', help='Use either train/validation/test dataset')
 
 args = parser.parse_args()
+
+
+def initiate_question_graph(
+        graph: nx.Graph,
+        question: str,
+        answer_choices: [str],
+        correct_answer: int,
+        question_entities_indices_list: list,
+        answer_entities_dict: dict,
+        prime_kg: nx.Graph,
+        question_index: int
+) -> nx.Graph:
+    question_embeddings = torch.tensor(openai.Embedding.create(input=[question], model="text-embedding-ada-002")['data'][0]['embedding']).unsqueeze(1)
+    question_index = question_index
+
+    graph.add_node(question_index, embedding=question_embeddings, type="question", index=question_index, name=question)
+
+    for question_entity_index in question_entities_indices_list:
+        target_node = prime_kg.nodes[question_entity_index]
+        target_node_type = target_node['type']
+        graph.add_node(question_entity_index, **target_node)
+        graph.add_edge(question_index, question_entity_index, relation=f"question_{target_node_type}")
+
+    for choice_index, answer_choice in enumerate(answer_choices):
+        answer_embeddings = torch.tensor(openai.Embedding.create(input=[answer_choice], model="text-embedding-ada-002")['data'][0]['embedding']).unsqueeze(1)
+
+        answer_index = random.randint(10 ** 9, (10 ** 10) - 1)
+        graph.add_node(answer_index, embedding=answer_embeddings, type="answer", index=answer_index, name=answer_choice, answer_choice_index=choice_index)
+
+        if choice_index == correct_answer:
+            graph.add_edge(question_index, answer_index, relation="question_correct_answer")
+        else:
+            graph.add_edge(question_index, answer_index, relation="question_wrong_answer")
+
+        for answer_entity_index in answer_entities_dict[answer_choice]:
+            target_node = prime_kg.nodes[answer_entity_index]
+            target_node_type = target_node['type']
+            graph.add_node(answer_entity_index, **target_node)
+            graph.add_edge(answer_index, answer_entity_index, relation=f"answer_{target_node_type}")
+
+    return graph
+
 
 if __name__ == "__main__":
 
@@ -68,13 +114,14 @@ if __name__ == "__main__":
             for choice in answer_choices:
                 answer_entities_dict[choice] = entities_indices_list[start:end]
                 start = end
-                end += num_entities_list[min(index, len(num_entities_list)-1)]
+                end += num_entities_list[min(index, len(num_entities_list) - 1)]
                 index += 1
 
             if len(entities_list) == 0:
                 continue
 
-            subgraph_builder.nx_subgraph = initiate_question_graph(subgraph_builder.nx_subgraph, question, answer_choices, correct_answer, entities_indices_list[:num_entities_list[0]], answer_entities_dict, subgraph_builder.kg, question_index=int(i))
+            subgraph_builder.nx_subgraph = initiate_question_graph(subgraph_builder.nx_subgraph, question, answer_choices, correct_answer, entities_indices_list[:num_entities_list[0]], answer_entities_dict, subgraph_builder.kg,
+                                                                   question_index=int(i))
 
             extracted_edges, extracted_edge_indices = subgraph_builder.extract_knowledge_from_kg(question, hops=2, neighbors_per_hop=10, entities_list=entities_list)
 
