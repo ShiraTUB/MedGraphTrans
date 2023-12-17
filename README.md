@@ -43,7 +43,7 @@ The necessary data needed for this step can be bound under:
 * Files 3. to 6. can be generated using the `MedTransNet/src/medical_hgt/dataset_builder.py` file.
 
 
-It is expected that all downloaded files will be saved under the following path: 
+### It is expected that all downloaded files will be saved under the following path: 
     ```
     MedGraphTrans/datasets
     ```
