@@ -4,6 +4,7 @@ import gc
 import torch
 import numpy as np
 
+from tqdm import tqdm
 from torch import cuda
 import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
@@ -56,9 +57,9 @@ def evaluate_model(llm, medical_hgt, split_loaders, split_name, device, qa_datas
 
     num_batches = round(frac * len(loader))
 
-    for i, batch in enumerate(loader):
+    print('Validation Batches...')
+    for i, batch in enumerate(tqdm(loader)):
         batch_num = i + 1
-        print(f'\r{split_name} batch {batch_num} / {num_batches}', end='')
 
         batch = batch.to(device)
 
@@ -91,7 +92,7 @@ def evaluate_model(llm, medical_hgt, split_loaders, split_name, device, qa_datas
 
             for question_index in unseen_questions_indices:
 
-                question_node_representation = torch.index_select(z_dict['question'], 0, question_index)  # z_dict['question'][question_index]
+                question_node_representation = torch.index_select(z_dict['question'], 0, question_index) #z_dict['question'][question_index]
 
                 question_uid = batch['question'].node_uid[question_index].item()
                 if question_uid not in llm_feedbacks_dict:
@@ -113,8 +114,8 @@ def evaluate_model(llm, medical_hgt, split_loaders, split_name, device, qa_datas
                 )
 
                 # Process question with context
-                llm.inference(prompt)
-                llm_response_dict = llm.get_confidence(correct_answer_map[correct_answer])
+                output_encodings, predictions = llm.inference(prompt)
+                llm_response_dict = llm.get_confidence(correct_answer_map[correct_answer], output_encodings, predictions)
                 if llm_response_dict['confidence'] == -1:
                     print(f'Wrong response format. Question {i} ignored during eval')
                     continue
@@ -253,7 +254,7 @@ def compute_link_prediction_loss(pos_preds: torch.Tensor, neg_preds: torch.Tenso
     return total_loss
 
 
-def train_model(llm, medical_hgt, split_loaders, device, file_name, qa_dataset, prime_kg, llm_feedbacks_dict, question_to_subgraphs_mapping, num_epochs=30, lr=0.001, link_prediction_loss_weight=0.8):
+def train_model(llm, medical_hgt, split_loaders, device, file_name, qa_dataset, prime_kg, llm_feedbacks_dict, question_to_subgraphs_mapping, num_epochs=30, lr=0.001, link_prediction_loss_weight=0.3):
     medical_hgt = medical_hgt.to(device)
 
     medical_hgt.train()
@@ -280,12 +281,8 @@ def train_model(llm, medical_hgt, split_loaders, device, file_name, qa_dataset, 
 
         num_batches = len(train_loader)
 
-        for i, batch in enumerate(train_loader):
-            batch_num = i + 1
-
-            # this is a carriage return trick for overwriting past lines
-            print(f'\rEpoch {epoch_num}: batch {batch_num} / {num_batches}', end='')
-
+        print("Train Batches...")
+        for batch in tqdm(train_loader):
             batch = batch.to(device)
 
             opt.zero_grad()
@@ -336,9 +333,9 @@ def train_model(llm, medical_hgt, split_loaders, device, file_name, qa_dataset, 
 
         # The validation ROC AUC is computed by running through the validation set
         # at the end of every epoch.
-        val_acc, val_llm_results = evaluate_model(llm, medical_hgt, split_loaders, 'val', device, qa_dataset, prime_kg, llm_feedbacks_dict, question_to_subgraphs_mapping)
+        link_prediction_val_acc, val_llm_results = evaluate_model(llm, medical_hgt, split_loaders, 'val', device, qa_dataset, prime_kg, llm_feedbacks_dict, question_to_subgraphs_mapping)
 
-        combined_val_acc = link_prediction_loss_weight * val_acc + llm_relevancy_loss_weight * val_llm_results['context_accuracy']
+        combined_val_acc = link_prediction_loss_weight * link_prediction_val_acc + llm_relevancy_loss_weight * val_llm_results['context_accuracy']
 
         epoch_result = EpochResult(
             epoch_num=epoch_num,

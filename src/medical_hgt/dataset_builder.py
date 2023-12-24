@@ -4,9 +4,9 @@ import random
 
 import torch
 import networkx as nx
-import pandas as pd
 import torch_geometric.transforms as T
 
+from tqdm import tqdm
 from itertools import chain
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import HeteroData
@@ -20,7 +20,7 @@ from config import ROOT_DIR
 class MedicalQADatasetBuilder:
 
     def __init__(self,
-                 paths_to_dataset: List[str],
+                 raw_data_list: List[nx.Graph],
                  val_ratio: float = 0.1,
                  test_ratio: float = 0.1,
                  positive_relation_type: Tuple[str, str, str] = ('question', 'question_correct_answer', 'answer'),
@@ -29,14 +29,9 @@ class MedicalQADatasetBuilder:
                  negative_sampling_ratio: int = 3,
                  batch_size: int = 32):
 
-        self.raw_data_list = self.build_raw_data_list(paths_to_dataset)
+        self.raw_data_list = raw_data_list
         self.all_edges_dict = {}
-        self.subgraphs_dict = {}
         self.processed_data_list = self.build_processed_data_list()
-
-        # todo: fix later
-        qa_dataset = load_dataset('medmcqa')
-        self.qa_dataset = pd.DataFrame(qa_dataset['train'])[:6102]
 
         self.num_val_samples = int(len(self.raw_data_list) * val_ratio)
         self.num_test_samples = int(len(self.raw_data_list) * test_ratio)
@@ -98,8 +93,6 @@ class MedicalQADatasetBuilder:
 
         for graph in self.raw_data_list:
             hetero_data, edge_uid_offset = convert_nx_to_hetero_data(graph, edge_uid_offset=edge_uid_offset)
-            question_uid = hetero_data['question'].node_uid.item()
-            self.subgraphs_dict[question_uid] = [(data['index'], data['type']) for node, data in graph.nodes(data=True) if data['type'] != 'question' and data['type'] != 'answer']
             processed_data_list.append(hetero_data)
 
             for edge_type in hetero_data.edge_types:
@@ -112,7 +105,6 @@ class MedicalQADatasetBuilder:
 
         for edge_type, edge_uids_nested_list in self.all_edges_dict.items():
             self.all_edges_dict[edge_type] = torch.tensor(list(chain.from_iterable([x] if isinstance(x, int) else x for x in edge_uids_nested_list)))
-            # rev_types_dict[(edge_type[2], f'rev_{edge_type[1]}', edge_type[0])] = self.all_edges_dict[edge_type]
 
         self.all_edges_dict.update(rev_types_dict)
 
@@ -126,7 +118,7 @@ class MedicalQADatasetBuilder:
 
         processed_batches = []
 
-        for batch in data_loader:
+        for batch in tqdm(data_loader):
 
             batch = self.ensure_batch_uniqueness(batch)
             if is_train:
@@ -294,18 +286,13 @@ def build_merged_graphs_raw_dataset(graphs_list):
 
 def convert_nx_to_hetero_data(graph: nx.Graph, edge_uid_offset=0) -> Tuple[HeteroData, int]:
     """
-
     Args:
-        add_edge_weights:
         graph: the nx.Graph from which the heteroData  should be created
         edge_uid_offset: a pointer of the last added edge. Might be used across many transformed graph to keep track across batched/ datasets
 
     Returns:
         data: the HeteroData object created from the input graph
-        edge_types_uids_dict: a dictionary of all edge types with the corresponding edge_uids added to the graph (in the format edge_type: edge_uids_list)
         edge_uid_offset: the updated edge_uid_offset
-
-
     """
 
     data = HeteroData()
@@ -322,12 +309,12 @@ def convert_nx_to_hetero_data(graph: nx.Graph, edge_uid_offset=0) -> Tuple[Heter
 
         s_node = graph.nodes[s]
         s_node_type = s_node['type']
-        s_node_embedding = torch.squeeze(s_node['embedding'], dim=1)
+        s_node_embedding = s_node['embedding']
         s_uid = s_node['index']
 
         t_node = graph.nodes[t]
         t_node_type = t_node['type']
-        t_node_embedding = torch.squeeze(t_node['embedding'], dim=1)
+        t_node_embedding = t_node['embedding']
         t_uid = t_node['index']
 
         if s_node_type != relation[0]:
@@ -396,7 +383,8 @@ def convert_nx_to_hetero_data(graph: nx.Graph, edge_uid_offset=0) -> Tuple[Heter
             node_types_uids_dict[node_type].append(node_uid)
 
     for n_type in node_types_embeddings_dict.keys():
-        data[n_type].x = torch.stack(node_types_embeddings_dict[n_type], dim=0).type("torch.FloatTensor")
+        x = torch.stack(node_types_embeddings_dict[n_type], dim=0).type("torch.FloatTensor")
+        data[n_type].x = x.view(1, x.size(1))
         data[n_type].node_uid = torch.tensor(node_types_uids_dict[n_type])
 
     for e_type in edge_types_index_dict.keys():

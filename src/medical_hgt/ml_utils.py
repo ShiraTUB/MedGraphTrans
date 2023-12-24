@@ -7,7 +7,7 @@ from config import OPENAI_API_KEY
 openai.api_key = OPENAI_API_KEY
 
 
-def find_most_relevant_nodes(batch, z_dict, question_nodes_embedding, subgraph_tuples, prime_gk, k=3):
+def find_most_relevant_nodes(batch, z_dict, question_nodes_embedding, subgraph_tuples, prime_gk, k=3, ):
 
     # Using a heap for efficient minimum distance tracking
     relevant_nodes_heap = []

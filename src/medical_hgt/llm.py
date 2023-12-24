@@ -1,9 +1,10 @@
 import os
 import torch
-import gc
 import pickle
 
 from transformers import logging as hf_logging
+from tqdm import tqdm
+
 from config import ROOT_DIR
 
 
@@ -44,69 +45,82 @@ class LLM:
     def __init__(self, model, tokenizer):
 
         self.model = model
-
         self.tokenizer = tokenizer
         self.tokenizer.pad_token = self.tokenizer.eos_token
-
         self.device = self.model.device
-
-        self.input_encoding = None
-        self.output_encoding = None
-        self.predictions = None
-        self.model_outputs = None
+        self.input_encoding_size = 0
 
         # Set the LLM's logging level to ERROR to suppress lower level logs
         hf_logging.set_verbosity_error()
 
-    def free_llm_memory(self):
-        for tup in self.model_outputs.past_key_values:
-            for t in tup:
-                t = t.cpu()
-                # print(t.device)
+    def inference_batch(self, prompts):
+        """
+        Process a batch of prompts.
+        """
+        predictions, output_encodings = [], []
+        batch_size = len(prompts)
+        instruct_prompts = [self.format_prompt(prompt) for prompt in prompts]
+        batch_encoding = self.tokenizer(instruct_prompts, padding=True, return_tensors="pt", truncation=True)
+        batch_encoding = batch_encoding.to(self.device)
+        self.input_encoding_size = batch_encoding.input_ids.shape[1]
 
-        # del self.model_outputs['scores']
-        del self.model_outputs.sequences
-        gc.collect()
+        with torch.no_grad():
+            model_outputs = self.model.generate(batch_encoding.input_ids, attention_mask=batch_encoding.attention_mask, output_scores=True, max_new_tokens=4, return_dict_in_generate=True)
 
-    def free_encodings_memory(self):
-        for t in self.input_encoding:
-            if torch.is_tensor(self.input_encoding[t]):
-                self.input_encoding[t] = self.input_encoding[t].cpu()
+        # Extract scores per prompt
+        scores_per_prompt = [[] for _ in range(batch_size)]
 
-    def verify_encoding_device(self):
-        for t in self.input_encoding:
-            if torch.is_tensor(self.input_encoding[t]):
-                self.input_encoding[t] = self.input_encoding[t].to(self.device)
+        for token_scores in model_outputs.scores:
+            # token_scores is of shape [batch_size, vocabulary_size]
+            for i in range(batch_size):
+                # Extract the scores for the i-th prompt
+                prompt_scores = token_scores[i]
+                scores_per_prompt[i].append(prompt_scores)
+
+        scores = []
+        for score in scores_per_prompt:
+            for s in score:
+                s = s.unsqueeze(0)
+            scores.append(tuple(score))
+
+        # Process and return the results
+        for prompt_index in range(batch_size):
+            # Extract the model's prediction indices for the current item
+            response_ids = model_outputs.sequences[prompt_index].unsqueeze(0)
+            response_scores = scores[prompt_index]
+            output_encodings.append(response_ids)
+            predictions.append(response_scores)
+
+        return output_encodings, predictions
 
     def inference(self, prompt):
 
         instruct_prompt = self.format_prompt(prompt)
 
-        self.input_encoding = self.tokenizer(instruct_prompt, return_tensors="pt")
+        input_encoding = self.tokenizer(instruct_prompt, return_tensors="pt")
+        input_encoding = input_encoding.to(self.device)
+        self.input_encoding_size = input_encoding.input_ids.shape[1]
 
-        self.verify_encoding_device()
+        model_outputs = self.model.generate(input_encoding.input_ids,
+                                            attention_mask=input_encoding.attention_mask,
+                                            output_scores=True,
+                                            max_new_tokens=4,
+                                            return_dict_in_generate=True)
 
-        self.model_outputs = self.model.generate(self.input_encoding.input_ids,
-                                                 attention_mask=self.input_encoding.attention_mask,
-                                                 output_scores=True,
-                                                 max_new_tokens=4,
-                                                 return_dict_in_generate=True)
+        predictions = model_outputs.scores
+        output_encoding = model_outputs.sequences
 
-        self.predictions = self.model_outputs.scores
-        self.output_encoding = self.model_outputs.sequences
+        return output_encoding, predictions
 
-        self.free_encodings_memory()
-        self.free_llm_memory()
-
-    def get_confidence(self, correct_answer) -> dict:
+    def get_confidence(self, correct_answer, output_encoding, predictions) -> dict:
 
         # Get the model's prediction indices
-        response_ids = self.output_encoding[:, self.input_encoding.input_ids.size(1):].squeeze(0).tolist()
+        response_ids = output_encoding[:, self.input_encoding_size:].squeeze(0).tolist()
 
-        most_probable_tokens_ids = torch.topk(self.predictions[0], 100).indices.tolist()[0]
+        most_probable_tokens_ids = torch.topk(predictions[0], 100).indices.tolist()[0]
 
         # Get all tokens' probabilities
-        all_tokens_probabilities = torch.nn.functional.softmax(self.predictions[0], dim=-1)
+        all_tokens_probabilities = torch.nn.functional.softmax(predictions[0], dim=-1)
 
         response_tokens_probabilities = all_tokens_probabilities.squeeze()[response_ids].tolist()
         top_tokens_probabilities = all_tokens_probabilities.squeeze()[most_probable_tokens_ids].tolist()
@@ -133,12 +147,6 @@ class LLM:
         else:
             return {'response': None, 'confidence': -1, 'cop_confidence': -1, 'accuracy': False}
 
-    def reset(self):
-        self.input_encoding = None
-        self.output_encoding = None
-        self.model_outputs = None
-        self.predictions = None
-
     def format_prompt(self, str):
 
         # str should have the strcture: Question: A headache could be a symptom of? A. Diabetes B. Concussion C. Broken leg D. Hemorrhoids
@@ -153,14 +161,11 @@ def compute_llm_feedback(llm, qa_dataset, nx_graph_data, question_to_subgraphs_m
     correct_answer_map = {0: 'A', 1: 'B', 2: 'C', 3: 'D'}
     llm_feedbacks_dict = {}  # a dict of dicts in the form {node_type_0: {node_index_0: conf_diff_0, node_index_1: conf_diff_1...}, ...}
 
-    for i, (qa_index, subgraph_tuples) in enumerate(question_to_subgraphs_mapping.items()):
+    for i, (qa_index, subgraph_tuples) in enumerate(tqdm(question_to_subgraphs_mapping.items())):
 
-        print(f'Processing question: {qa_index} ({i} / {len(question_to_subgraphs_mapping)})')
-        # for node_index, question_node_representation in enumerate(batch['question']):
-        # qa_index = batch['question'].node_uid[node_index].item()
-        # subgraph_tuples = subgraphs_dict[qa_index]
-        question_dict = dict(qa_dataset.iloc[qa_index].drop(['id', 'cop', 'exp']))
-        correct_answer = qa_dataset.iloc[qa_index]['cop']
+        qa_row = qa_dataset.iloc[qa_index]
+        question_dict = dict(qa_row.drop(['id', 'cop', 'exp']))
+        correct_answer = qa_row['cop']
         prompt = """Question: {} A. {} B. {} C. {} D. {}""".format(
             question_dict['question'],
             question_dict['opa'],
@@ -170,8 +175,8 @@ def compute_llm_feedback(llm, qa_dataset, nx_graph_data, question_to_subgraphs_m
         )
 
         # Process question without context
-        llm.inference(prompt)
-        llm_vanilla_response_dict = llm.get_confidence(correct_answer_map[correct_answer])
+        output_encodings, predictions = llm.inference(prompt)
+        llm_vanilla_response_dict = llm.get_confidence(correct_answer_map[correct_answer], output_encodings, predictions)
 
         if llm_vanilla_response_dict['confidence'] == -1:
             print(f'Wrong response format. Question {i} ignored')
@@ -180,28 +185,37 @@ def compute_llm_feedback(llm, qa_dataset, nx_graph_data, question_to_subgraphs_m
         # Create LLMFeedback object
         llm_feedback = LLMFeedback(qa_index, llm_vanilla_response_dict['response'], llm_vanilla_response_dict['confidence'], llm_vanilla_response_dict['cop_confidence'], llm_vanilla_response_dict['accuracy'])
 
-        # Process contexts
-        for num_knowledge_nodes, (node_uid, node_type) in enumerate(subgraph_tuples):
-            if num_knowledge_nodes >= 20:
-                break
+        # Batch process contexts
+
+        prompts_with_context = []
+
+        for node_uid, node_type in subgraph_tuples[:20]:
             # Create Context string
             node_name = nx_graph_data.nodes[node_uid]['name']
             context = f'Context: The {node_type} {node_name}. '
             prompt_with_context = context + prompt
-            llm.inference(prompt_with_context)
-            llm_context_response_dict = llm.get_confidence(correct_answer_map[correct_answer])
+            prompts_with_context.append(prompt_with_context)
+
+        # Batch inference
+        batch_output_encodings, batch_predictions = llm.inference_batch(prompts_with_context)
+
+        # Postprocess batch model output
+        for j, (node_uid, node_type) in enumerate(subgraph_tuples[:20]):
+            output_encoding = batch_output_encodings[j]
+            prediction = batch_predictions[j]
+            llm_context_response_dict = llm.get_confidence(correct_answer_map[correct_answer], output_encoding=output_encoding, predictions=prediction)
 
             if llm_context_response_dict['confidence'] == -1:
-                print(f'Wrong response format. Question {i}, Node {node_uid} ignored')
+                print(f'Wrong response format. Node {node_uid} ignored')
                 continue
 
             llm_feedback.insert_feedback(node_type, node_uid, llm_context_response_dict['confidence'], llm_context_response_dict['cop_confidence'], llm_context_response_dict['accuracy'])
-            # confidence_diffs_dict[qa_index][node_type][node_uid] = question_confidence_diff
 
-        llm_feedbacks_dict[qa_index] = llm_feedback
-        llm_feedback.print_feedback()
+            llm_feedbacks_dict[qa_index] = llm_feedback
 
         if i % 100 == 0:
+            print(f'Example Feedback:\n')
+            llm_feedbacks_dict[qa_index].print_feedback()
             pickle.dump(llm_feedbacks_dict, open(os.path.join(ROOT_DIR, 'datasets', f'llm_feedbacks_{i}.pickle'), 'wb'))
 
     return llm_feedbacks_dict

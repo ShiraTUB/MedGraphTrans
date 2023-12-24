@@ -32,12 +32,11 @@ parser.add_argument('--kg_subgraphs_mapping', type=str, default='datasets/subgra
 args = parser.parse_args()
 
 
-def run_experiment(data_loader_params, device, llm, llm_feedbacks_dict, question_to_subgraphs_mapping, prime_kg, qa_dataset, runs=1, loaders=None):
+def run_experiment(data_loader_params, device, llm, llm_feedbacks_dict, question_to_subgraphs_mapping, prime_kg, qa_dataset, raw_data_list, runs=1, loaders=None):
     """Runs a multi-trial experiment using the given DataLoaderParams."""
-    # todo: instead of calling build_link_neighbor_loaders call MedicalQADatasetBuilder (make necessary adjustments) - loaders = dataset_builder.train_mini_batches, dataset_builder.val_mini_batches, dataset_builder.test_mini_batched
     if loaders is None:
         dataset_builder = MedicalQADatasetBuilder(
-            args.dataset_folders_paths,
+            raw_data_list,
             val_ratio=data_loader_params.val_ratio,
             test_ratio=data_loader_params.test_ratio,
             disjoint_train_edges_ratio=data_loader_params.disjoint_train_edges_ratio,
@@ -79,7 +78,7 @@ class DataLoaderParams:
 
 data_loader_params_list = [
     # baseline
-    DataLoaderParams(val_ratio=0.1, test_ratio=0.1, disjoint_train_edges_ratio=0.9, negative_sampling_ratio=3, batch_size=16, num_epochs=100),
+    DataLoaderParams(val_ratio=0.1, test_ratio=0.1, disjoint_train_edges_ratio=0.8, negative_sampling_ratio=3, batch_size=16, num_epochs=25),
     # different batch sizes
     # DataLoaderParams(neg_sampling_ratio=2.0, num_neighbors=[20, 10], batch_size=512),
     # DataLoaderParams(neg_sampling_ratio=2.0, num_neighbors=[20, 10], batch_size=256),
@@ -108,40 +107,44 @@ data_loader_params_list = [
 # Load data
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-train_data_path = os.path.join(ROOT_DIR, 'datasets/train_data_batch_size_16.pickle')
-val_data_path = os.path.join(ROOT_DIR, 'datasets/val_data_batch_size_16.pickle')
-test_data_path = os.path.join(ROOT_DIR, 'datasets/test_data_batch_size_16.pickle')
+# train_data_path = os.path.join(ROOT_DIR, 'datasets/train_data_batch_size_16.pickle')
+# val_data_path = os.path.join(ROOT_DIR, 'datasets/val_data_batch_size_16.pickle')
+# test_data_path = os.path.join(ROOT_DIR, 'datasets/test_data_batch_size_16.pickle')
+#
+# train_data = pickle.load(open(train_data_path, 'rb'))
+# val_data = pickle.load(open(val_data_path, 'rb'))
+# test_data = pickle.load(open(test_data_path, 'rb'))
 
-train_data = pickle.load(open(train_data_path, 'rb'))
-val_data = pickle.load(open(val_data_path, 'rb'))
-test_data = pickle.load(open(test_data_path, 'rb'))
+# loaders = {'train': train_data, 'val': val_data, 'test': test_data}
+llm_feedbacks_dict1 = pickle.load(open(os.path.join(ROOT_DIR, 'datasets/llm_feedbacks_17839.pickle'), 'rb'))
+llm_feedbacks_dict2 = pickle.load(open(os.path.join(ROOT_DIR, 'datasets/llm_feedbacks_17898.pickle'), 'rb'))
 
-loaders = {'train': train_data, 'val': val_data, 'test': test_data}
+prime_kg = pickle.load(open(os.path.join(ROOT_DIR, 'datasets/prime_kg_nx_63960.pickle'), 'rb'))
 
-prime_kg = pickle.load(open(os.path.join(ROOT_DIR, 'datasets/primeKG_nx_medium.pickle'), 'rb'))
 
-llm_feedbacks_dict = pickle.load(open(os.path.join(ROOT_DIR, 'datasets/llm_feedback/llm_feedbacks_test_100.pickle'), 'rb'))
-question_to_subgraphs_mapping = pickle.load(open(os.path.join(ROOT_DIR, 'datasets/subgraphs_dict.pickle'), 'rb'))
+question_to_subgraphs_mapping = pickle.load(open(os.path.join(ROOT_DIR, 'datasets/question_to_subgraphs_mapping_17898.pickle'), 'rb'))
 
 qa_dataset = load_dataset("medmcqa")
 qa_dataset = pd.DataFrame(qa_dataset['train'])
+
+raw_data_list = pickle.load(open(os.path.join(ROOT_DIR, 'datasets/raw_data_list_17898.pickle'), 'rb'))
 
 # Load LLM
 
 # 4bit quantization config
 
-bnb_config = transformers.BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_use_double_quant=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.bfloat16
-)
+# bnb_config = transformers.BitsAndBytesConfig(
+#     load_in_4bit=True,
+#     bnb_4bit_use_double_quant=True,
+#     bnb_4bit_quant_type="nf4",
+#     bnb_4bit_compute_dtype=torch.bfloat16
+# )
 
-model_name = "mistralai/Mistral-7B-Instruct-v0.1"
+# model_name = "mistralai/Mistral-7B-Instruct-v0.1"
 
-model = transformers.AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, quantization_config=bnb_config, device_map='auto')
-tokenizer = AutoTokenizer.from_pretrained(model_name)
+# model = transformers.AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, quantization_config=bnb_config, device_map='auto')
+# tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 llm = None  # LLM(model, tokenizer)
 for data_loader_params in data_loader_params_list:
-    run_experiment(data_loader_params, device, llm, llm_feedbacks_dict, question_to_subgraphs_mapping, prime_kg, qa_dataset)
+    run_experiment(data_loader_params, device, llm, llm_feedbacks_dict1, question_to_subgraphs_mapping, prime_kg, qa_dataset, raw_data_list=raw_data_list)
