@@ -7,6 +7,8 @@ import pickle
 from tqdm import tqdm
 import pandas as pd
 import networkx as nx
+from transformers import AutoTokenizer, AutoModel
+
 from config import OPENAI_API_KEY, ROOT_DIR
 
 openai.api_key = OPENAI_API_KEY
@@ -46,11 +48,6 @@ class GraphBuilder:
 
         self.generate_nx_graph()
         self.validate_edges()
-
-        if save_path is not None:
-            # save graph object to file
-            file_name = f"prime_gk_nx_{len(self.nx_graph.nodes())}"
-            pickle.dump(self.nx_graph, open(os.path.join(ROOT_DIR, save_path, file_name), 'wb'))
 
     def create_sub_df(self, types: list, filter_nodes: bool = False):
         df = self.prime_kg_df
@@ -123,10 +120,50 @@ class GraphBuilder:
             self.nx_graph.nodes[node]['source'] = node_attributes_dict.get('source')
             self.type_index_dict[node_attributes_dict.get('type')].append(node_attributes_dict.get('index'))
 
-            if len(list(nx.get_node_attributes(self.nx_graph, 'raw_data').values())) >= 1000:
-                break
+    def embed_nodes(self, model_name="text-embedding-ada-002", batch_size=10):
+        """
+        Embed a list of texts using the specified model in batches.
 
-        # Embedd Nodes in batches according to the number of tokens per node to minimize the number of api calls
+        Args:
+
+        model_name (str): The name of the model to use.
+        batch_size (int): The number of texts to process in each batch.
+
+        Returns:
+        torch.Tensor: A tensor containing the embeddings.
+        """
+        # Store embeddings
+        all_embeddings = []
+
+        for node in tqdm(list(self.nx_graph.nodes())):
+            data = self.nx_graph.nodes[node]['raw_data']
+
+            try:
+                embedding_list = openai.Embedding.create(input=[data], model=self.model)['data'][0]['embedding']
+                embedding_tensor = torch.tensor(embedding_list)
+                all_embeddings.append(embedding_tensor)
+                self.nx_graph.nodes[node]['embedding'] = embedding_tensor
+
+            except Exception as e:
+                continue
+
+        # Concatenate all embeddings
+        self.embeddings_tensor = torch.cat(all_embeddings, dim=1)
+
+        if self.save_path is not None:
+            # save embeddings to file
+            embedding_file_name = f'prime_kg_embeddings_tensor_{model_name}_{self.embeddings_tensor.size(0)}'
+            torch.save(self.embeddings_tensor, os.path.join(ROOT_DIR, self.save_path, embedding_file_name))
+
+            # save graph object to file
+            graph_file_name = f"prime_kg_nx_{model_name}_{len(self.nx_graph.nodes())}"
+            pickle.dump(self.nx_graph, open(os.path.join(ROOT_DIR, self.save_path, graph_file_name), 'wb'))
+
+        return all_embeddings
+
+    def embed_nodes_open_ai(self):
+        """Embedd Nodes in batches according to the number of tokens per node to minimize the number of api calls"""
+
         max_input_tokes = 8191
         nodes_data = list(nx.get_node_attributes(self.nx_graph, 'raw_data').values())
         num_tokens_per_node = [(len(node_data.split()) * 3) for node_data in nodes_data]
@@ -220,6 +257,6 @@ prime_kg_path = 'datasets/kg.csv'
 drug_features_path = 'datasets/drug_features.csv'
 disease_features_path = 'datasets/disease_features.csv'
 
-filter_edge_types = ["indication", "drug_drug", "phenotype_phenotype", "disease_phenotype_positive", "disease_disease", "drug_effect", ]
+filter_edge_types = ["indication", "drug_drug", "phenotype_phenotype", "disease_phenotype_positive", "disease_disease", "drug_effect", "phenotype_protein", "disease_protein", "anatomy_anatomy", "anatomy_protein_absent"]
 
-gb = GraphBuilder(prime_kg_path, drug_features_path, disease_features_path, node_types=node_types, edge_types=edge_types, filter_edge_or_node_types=filter_edge_types)
+gb = GraphBuilder(prime_kg_path, drug_features_path, disease_features_path, node_types=node_types, edge_types=edge_types, filter_edge_or_node_types=filter_edge_types, save_path='datasets')

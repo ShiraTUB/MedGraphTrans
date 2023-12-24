@@ -17,8 +17,8 @@ openai.api_key = OPENAI_API_KEY
 
 parser = argparse.ArgumentParser(description='Preprocess KG on PrimeKG + Medmcqa')
 
-parser.add_argument('--prime_kg_dataset', type=str, default='datasets/primeKG_nx_medium.pickle', help='PrimeKG pickle path')
-parser.add_argument('--prime_kg_embeddings_dataset', type=str, default='datasets/primeKG_embeddings_tensor.pt', help='primeKG embeddings pt path')
+parser.add_argument('--prime_kg_dataset', type=str, default='datasets/prime_kg_nx_63960.pickle', help='PrimeKG pickle path')
+parser.add_argument('--prime_kg_embeddings_dataset', type=str, default='datasets/prime_kg_embeddings_tensor_63960.pt', help='primeKG embeddings pt path')
 parser.add_argument('--trie_path', type=str, default=None, help='knowledge_graph_trie path, set to None if no trie is available')
 parser.add_argument('--qa_dataset_name', type=str, default='medmcqa', help='Name of dataset to download using datasets')
 parser.add_argument('--dataset_target_path', type=str, default='datasets/', help='Path of where to save the processed dataset')
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     kg_path = os.path.join(ROOT_DIR, args.prime_kg_dataset)
     embeddings_path = os.path.join(ROOT_DIR, args.prime_kg_embeddings_dataset)
     trie_path = None if args.trie_path is None else os.path.join(ROOT_DIR, args.trie_path)
-    trie_save_path = None if trie_path is not None else os.path.join(ROOT_DIR, args.trie_save_path)
+    trie_save_path = None if trie_path is not None else os.path.join(ROOT_DIR, args.dataset_target_path)
 
     subgraph_builder = SubgraphBuilder(kg_name_or_path=kg_path,
                                        kg_embeddings_path=embeddings_path,
@@ -105,6 +105,8 @@ if __name__ == "__main__":
 
             entities_list, entities_indices_list, num_entities_list = medical_ner([question] + answer_choices, subgraph_builder.node_embeddings, node_indices_list, subgraph_builder.kg)
 
+            if len(entities_list) == 0:
+                continue
             # reconstruct answer indices for initiating the question graph:
             start = num_entities_list[0]
             end = start + num_entities_list[1]
@@ -116,9 +118,6 @@ if __name__ == "__main__":
                 start = end
                 end += num_entities_list[min(index, len(num_entities_list) - 1)]
                 index += 1
-
-            if len(entities_list) == 0:
-                continue
 
             subgraph_builder.nx_subgraph = initiate_question_graph(subgraph_builder.nx_subgraph, question, answer_choices, correct_answer, entities_indices_list[:num_entities_list[0]], answer_entities_dict, subgraph_builder.kg,
                                                                    question_index=int(i))

@@ -72,7 +72,7 @@ def embed_tokens(tokens_list: list) -> list:
         return []
 
 
-def find_closest_nodes(entities_embeddings_list: [np.ndarray], graph_node_embeddings: np.ndarray, node_indices_list: list, prime_kg: nx.Graph) -> (list, list):
+def find_closest_nodes(entities_embeddings_list: [np.ndarray], graph_node_embeddings: np.ndarray, node_indices_list: list, prime_kg: nx.Graph, threshold: float = 0.5) -> (list, list):
     """
     param entities_embeddings_list: a list of embedded entities (extracted from the query)
     param graph_node_embeddings: a matrix containing all node embeddings
@@ -86,14 +86,15 @@ def find_closest_nodes(entities_embeddings_list: [np.ndarray], graph_node_embedd
 
     # Calculate the pairwise L2 norms
     distances = torch.norm(torch.cat(entities_embeddings_list).unsqueeze(1) - graph_node_embeddings.unsqueeze(0), p=2, dim=2)
-    closest_embeddings_indices = torch.min(distances, dim=-1).indices
+    min_distances, closest_embeddings_indices = torch.min(distances, dim=-1)
 
-    for i in closest_embeddings_indices:
-        closest_node_index = node_indices_list[i]
-        closest_nodes_indices.append(closest_node_index)
+    for i in range(len(closest_embeddings_indices)):
+        closest_node_index = node_indices_list[closest_embeddings_indices[i]]
 
-        closest_node_name = prime_kg.nodes[closest_node_index]['name']
-        closest_node_name = closest_node_name.replace(' ', '_')
-        closest_nodes_names.append(closest_node_name)
+        if min_distances[i] <= threshold:
+            closest_nodes_indices.append(closest_node_index)
+
+            closest_node_name = prime_kg.nodes[closest_node_index]['name'].replace(' ', '_')
+            closest_nodes_names.append(closest_node_name)
 
     return closest_nodes_names, closest_nodes_indices
