@@ -248,7 +248,7 @@ class SubgraphBuilder:
         for source, target in extracted_edge_indices:
             source_node = self.kg.nodes[source]
             target_node = self.kg.nodes[target]
-            relation = self.kg[source][target][0]['relation']
+            relation = self.kg[source][target]['relation']
 
             self.nx_subgraph.add_node(source, **source_node)
             self.nx_subgraph.add_node(target, **target_node)
