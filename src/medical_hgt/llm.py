@@ -2,6 +2,7 @@ import os
 import torch
 import pickle
 
+from typing import List
 from transformers import logging as hf_logging
 from tqdm import tqdm
 
@@ -45,18 +46,30 @@ class LLM:
     def __init__(self, model, tokenizer):
 
         self.model = model
+
         self.tokenizer = tokenizer
         self.tokenizer.pad_token = self.tokenizer.eos_token
+
         self.device = self.model.device
+
         self.input_encoding_size = 0
 
         # Set the LLM's logging level to ERROR to suppress lower level logs
         hf_logging.set_verbosity_error()
 
-    def inference_batch(self, prompts):
+    def inference_batch(self, prompts: List[str]):
         """
-        Process a batch of prompts.
+         Process a batch of prompts.
+
+        Args:
+            prompts:
+
+        Returns:
+            output_encodings: the models predicted token indices per prompt in prompts
+            predictions: the corresponding logits to output_encodings
+
         """
+
         predictions, output_encodings = [], []
         batch_size = len(prompts)
         instruct_prompts = [self.format_prompt(prompt) for prompt in prompts]
@@ -77,23 +90,27 @@ class LLM:
                 prompt_scores = token_scores[i]
                 scores_per_prompt[i].append(prompt_scores)
 
-        scores = []
-        for score in scores_per_prompt:
-            for s in score:
-                s = s.unsqueeze(0)
-            scores.append(tuple(score))
-
         # Process and return the results
         for prompt_index in range(batch_size):
             # Extract the model's prediction indices for the current item
             response_ids = model_outputs.sequences[prompt_index].unsqueeze(0)
-            response_scores = scores[prompt_index]
+            response_scores = tuple([t.unsqueeze(0) for t in scores_per_prompt[prompt_index]])
             output_encodings.append(response_ids)
             predictions.append(response_scores)
 
         return output_encodings, predictions
 
-    def inference(self, prompt):
+    def inference(self, prompt: str):
+        """
+
+        Args:
+            prompt: tun inference on the LLM
+
+        Returns:
+            output_encodings: the models predicted token indices
+            predictions: the corresponding logits to output_encodings
+
+        """
 
         instruct_prompt = self.format_prompt(prompt)
 
@@ -113,6 +130,17 @@ class LLM:
         return output_encoding, predictions
 
     def get_confidence(self, correct_answer, output_encoding, predictions) -> dict:
+        """
+        Process the LLMs output
+        Args:
+            correct_answer: the correct answer to the question from MedMCQA
+            output_encoding: the models predicted token indices
+            predictions: the corresponding logits to output_encodings
+
+        Returns:
+            A dict of the LLM's processed output
+
+        """
 
         # Get the model's prediction indices
         response_ids = output_encoding[:, self.input_encoding_size:].squeeze(0).tolist()
@@ -157,7 +185,19 @@ class LLM:
         return instruction_beginning + str + instruction_end
 
 
-def compute_llm_feedback(llm, qa_dataset, nx_graph_data, question_to_subgraphs_mapping):
+def compute_llm_feedback(llm, qa_dataset, kg, question_to_subgraphs_mapping):
+    """
+    Pre-compute the LLM's responses to the questions of MedMCQA along with the extracted knowledge nodes from PrimeKG
+
+    Args:
+        llm: a loaded llm
+        qa_dataset: MedMCQA
+        kg: the knowledge graph used for knowledge extraction
+        question_to_subgraphs_mapping: a dict mapping each question from MedMCQA to the node id's that construct the question's heterogeneous subgraph in our training dataset
+
+    Returns: a dict mapping each question from MedMCQA to the LLM's feedback to it's attached contexts
+
+    """
     correct_answer_map = {0: 'A', 1: 'B', 2: 'C', 3: 'D'}
     llm_feedbacks_dict = {}  # a dict of dicts in the form {node_type_0: {node_index_0: conf_diff_0, node_index_1: conf_diff_1...}, ...}
 
@@ -191,7 +231,7 @@ def compute_llm_feedback(llm, qa_dataset, nx_graph_data, question_to_subgraphs_m
 
         for node_uid, node_type in subgraph_tuples[:20]:
             # Create Context string
-            node_name = nx_graph_data.nodes[node_uid]['name']
+            node_name = kg.nodes[node_uid]['name']
             context = f'Context: The {node_type} {node_name}. '
             prompt_with_context = context + prompt
             prompts_with_context.append(prompt_with_context)
@@ -216,6 +256,6 @@ def compute_llm_feedback(llm, qa_dataset, nx_graph_data, question_to_subgraphs_m
         if i % 100 == 0:
             print(f'Example Feedback:\n')
             llm_feedbacks_dict[qa_index].print_feedback()
-            pickle.dump(llm_feedbacks_dict, open(os.path.join(ROOT_DIR, 'datasets', f'llm_feedbacks_{i}.pickle'), 'wb'))
+            pickle.dump(llm_feedbacks_dict, open(os.path.join(ROOT_DIR, 'datasets', 'train', 'llm_feedback', f'llm_feedbacks_{i}.pickle'), 'wb'))
 
     return llm_feedbacks_dict

@@ -11,24 +11,26 @@ from src.utils import node_types, metadata
 
 
 class HGT(torch.nn.Module):
-    def __init__(self, hidden_channels, out_channels, num_heads, num_layers):
+    def __init__(self, channels, num_heads, num_layers):
         super().__init__()
 
         self.lin_dict = torch.nn.ModuleDict()
+        self.bn_dict = torch.nn.ModuleDict()  # Adding batch normalization layers
 
         for node_type in node_types:
-            self.lin_dict[node_type] = Linear(-1, hidden_channels)
+            self.lin_dict[node_type] = Linear(-1, channels)
+            self.bn_dict[node_type] = torch.nn.BatchNorm1d(channels)
 
         self.convs = torch.nn.ModuleList()
-
         for _ in range(num_layers):
-            conv = HGTConv(hidden_channels, hidden_channels, metadata, num_heads, group='sum')
+            conv = HGTConv(channels, channels, metadata, num_heads, group='sum')
             self.convs.append(conv)
 
-        self.lin = Linear(hidden_channels, out_channels)
-
-    def forward(self, data):
+    def forward(self, data, batch_size):
         x_dict = {node_type: self.lin_dict[node_type](x).relu_() for node_type, x in data.x_dict.items()}
+
+        if data.x_dict['question'].size(0) == batch_size:
+            x_dict = {node_type: self.bn_dict[node_type](x) for node_type, x in x_dict.items()}  # Apply batch normalization
 
         for conv in self.convs:
             x_dict = conv(x_dict, data.edge_index_dict)
@@ -74,9 +76,9 @@ class Decoder(torch.nn.Module):
 
 
 class MedicalHGT(torch.nn.Module):
-    def __init__(self, hidden_channels=64, out_channels=64, num_heads=2, num_layers=1):
+    def __init__(self, channels=64, num_heads=2, num_layers=1):
         super().__init__()
-        self.hgt = HGT(hidden_channels=hidden_channels, out_channels=out_channels, num_heads=num_heads, num_layers=num_layers)
+        self.hgt = HGT(channels=channels, num_heads=num_heads, num_layers=num_layers)
         self.decoder = Decoder()
         # self.grads = {}  # for debugging purposes
 
