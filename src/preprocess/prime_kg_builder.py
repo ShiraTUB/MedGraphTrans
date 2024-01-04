@@ -7,7 +7,6 @@ import pickle
 from tqdm import tqdm
 import pandas as pd
 import networkx as nx
-from transformers import AutoTokenizer, AutoModel
 
 from config import OPENAI_API_KEY, ROOT_DIR
 
@@ -23,22 +22,23 @@ class GraphBuilder:
                  prime_kg_path: str,
                  drug_features_path: str,
                  disease_features_path: str,
-                 node_types: list,
-                 edge_types: list,
                  save_path: str = None,
-                 filter_edge_or_node_types: list = None):
+                 filter_edge_or_node_types: list = None
+                 ):
+        """
+        Build a NetwrokX graph based on the PrimeKG csv file.
+        Node enbeddings are created using openAI Embeddings Model.
+        We use node features provided alongside PrimeKG to enrich the embeddings of drug and diesease nodes.
 
-        self.node_types = node_types
-        self.edge_types = edge_types
-        self.type_index_dict = {ntype: [] for ntype in self.node_types + self.edge_types}
+        Use the save_path parameter to save the generated nx graph as a pickle file.
 
-        self.prime_kg_df = pd.read_csv(os.path.join(ROOT_DIR, prime_kg_path))
-
-        if filter_edge_or_node_types is not None:
-            self.create_sub_df(filter_edge_or_node_types)
-
-        self.drug_features_df = pd.read_csv(os.path.join(ROOT_DIR, drug_features_path), low_memory=False)
-        self.disease_features_df = pd.read_csv(os.path.join(ROOT_DIR, disease_features_path), low_memory=False)
+        Args:
+            prime_kg_path: the path to the csv file
+            drug_features_path: the path to the drugs features csv file
+            disease_features_path: the path to the disease features csv file
+            save_path: where to save the generated nx graph and embeddings
+            filter_edge_or_node_types: a list of the nodes or edges types to be included in the generated nx graph
+        """
 
         self.embeddings_tensor = None
         self.embeddings_list = []
@@ -46,8 +46,30 @@ class GraphBuilder:
         self.model = "text-embedding-ada-002"
         self.save_path = save_path
 
+        self.node_types = ['gene/protein', 'drug', 'effect/phenotype', 'disease', 'biological_process', 'molecular_function',
+                           'cellular_component', 'exposure', 'pathway', 'anatomy']
+
+        self.edge_types = ["protein_protein", "drug_protein", "contraindication", "indication", "off_label_use", "drug_drug",
+                           "phenotype_protein", "phenotype_phenotype", "disease_phenotype_negative",
+                           "disease_phenotype_positive", "disease_protein", "disease_disease", "drug_effect",
+                           "bioprocess_bioprocess", "molfunc_molfunc", "cellcomp_cellcomp", "molfunc_protein",
+                           "cellcomp_protein", "bioprocess_protein", "exposure_protein", "exposure_disease", "exposure_exposure",
+                           "exposure_bioprocess", "exposure_molfunc", "exposure_cellcomp", "pathway_pathway", "pathway_protein",
+                           "anatomy_anatomy", "anatomy_protein_present", "anatomy_protein_absent"]
+
+        self.prime_kg_df = pd.read_csv(os.path.join(ROOT_DIR, prime_kg_path))
+        print('PrimeKG csv loaded successfully!')
+
+        if filter_edge_or_node_types is not None:
+            self.create_sub_df(filter_edge_or_node_types)
+
+        self.drug_features_df = pd.read_csv(os.path.join(ROOT_DIR, drug_features_path), low_memory=False)
+        self.disease_features_df = pd.read_csv(os.path.join(ROOT_DIR, disease_features_path), low_memory=False)
+        print('Node features csvs loaded successfully!')
+
         self.generate_nx_graph()
         self.validate_edges()
+        self.embed_nodes()
 
     def create_sub_df(self, types: list, filter_nodes: bool = False):
         df = self.prime_kg_df
@@ -62,6 +84,7 @@ class GraphBuilder:
 
     def generate_nx_graph(self):
 
+        print('Calling nx.from_pandas_edgelist()...')
         self.nx_graph = nx.from_pandas_edgelist(
             self.prime_kg_df,
             source="x_index",
@@ -69,6 +92,7 @@ class GraphBuilder:
             edge_attr='relation',
             create_using=nx.Graph()
         )
+        print('Done!')
 
         for node in tqdm(list(self.nx_graph.nodes())):
             x_sub_df = self.prime_kg_df.query(f'x_index == {node}')
@@ -77,7 +101,6 @@ class GraphBuilder:
             if not x_sub_df.empty:
                 for y_index in list(x_sub_df['y_index']):
                     rel_type = self.nx_graph.get_edge_data(node, y_index, 0)['relation']
-                    self.type_index_dict[rel_type].append((node, y_index))
 
             # create an attributes dictionary for the relevant node
             x_sub_df = x_sub_df[['x_index', 'x_type', 'x_name', 'x_source']].drop_duplicates().rename(
@@ -118,9 +141,13 @@ class GraphBuilder:
             self.nx_graph.nodes[node]['index'] = node_attributes_dict.get('index')
             self.nx_graph.nodes[node]['name'] = node_attributes_dict.get('name')
             self.nx_graph.nodes[node]['source'] = node_attributes_dict.get('source')
-            self.type_index_dict[node_attributes_dict.get('type')].append(node_attributes_dict.get('index'))
 
-    def embed_nodes(self, model_name="text-embedding-ada-002", batch_size=10):
+            if self.save_path is not None:
+                # save graph object to file
+                file_name = f"prime_gk_nx_without_embeddings_{len(self.nx_graph.nodes())}.pickle"
+                pickle.dump(self.nx_graph, open(os.path.join(ROOT_DIR, self.save_path, file_name), 'wb'))
+
+    def embed_nodes(self, batch_size=10, model_name='text-embedding-ada-002'):
         """
         Embed a list of texts using the specified model in batches.
 
@@ -135,19 +162,22 @@ class GraphBuilder:
         # Store embeddings
         all_embeddings = []
 
-        for node in tqdm(list(self.nx_graph.nodes())):
-            data = self.nx_graph.nodes[node]['raw_data']
+        nodes = list(self.nx_graph.nodes())
+        for i in tqdm(range(0, len(nodes), batch_size)):
+            batch_nodes = nodes[i:i + batch_size]
+            batch_data = [self.nx_graph.nodes[node]['raw_data'] for node in batch_nodes]
 
             try:
-                embedding_list = openai.Embedding.create(input=[data], model=self.model)['data'][0]['embedding']
-                embedding_tensor = torch.tensor(embedding_list)
-                all_embeddings.append(embedding_tensor)
-                self.nx_graph.nodes[node]['embedding'] = embedding_tensor
+                embeddings = openai.Embedding.create(input=batch_data, model=model_name)['data']
+                for node, embedding in zip(batch_nodes, embeddings):
+                    embedding_tensor = torch.tensor(embedding['embedding'])
+                    all_embeddings.append(embedding_tensor)
+                    self.nx_graph.nodes[node]['embedding'] = embedding_tensor
 
             except Exception as e:
+                print(f"Error processing batch starting at index {i}: {e}")
                 continue
 
-        # Concatenate all embeddings
         self.embeddings_tensor = torch.cat(all_embeddings, dim=1)
 
         if self.save_path is not None:
@@ -159,48 +189,7 @@ class GraphBuilder:
             graph_file_name = f"prime_kg_nx_{model_name}_{len(self.nx_graph.nodes())}"
             pickle.dump(self.nx_graph, open(os.path.join(ROOT_DIR, self.save_path, graph_file_name), 'wb'))
 
-        return all_embeddings
-
-    def embed_nodes_open_ai(self):
-        """Embedd Nodes in batches according to the number of tokens per node to minimize the number of api calls"""
-
-        max_input_tokes = 8191
-        nodes_data = list(nx.get_node_attributes(self.nx_graph, 'raw_data').values())
-        num_tokens_per_node = [(len(node_data.split()) * 3) for node_data in nodes_data]
-        nodes_index = list(nx.get_node_attributes(self.nx_graph, 'index').values())
-        nodes_type = list(nx.get_node_attributes(self.nx_graph, 'type').values())
-
-        prompts_list = []
-        start = 0
-        for i, (node_data, node_index, node_type) in enumerate(list(zip(nodes_data, nodes_index, nodes_type))):
-            end = i
-            number_of_tokens = len(node_data.split()) * 3
-            if number_of_tokens > max_input_tokes:
-                prompt_string = "".join(node_data.split()[:2600])
-            else:
-                prompt_string = node_data
-            prompts_list.append(prompt_string)
-
-            if end - start == 10:
-                try:
-                    response = openai.Embedding.create(input=prompts_list, model=self.model)
-                    embeddings_list = [torch.tensor(item['embedding']).unsqueeze(1) for item in response['data']]
-
-                    for idx, node_idx in enumerate(nodes_index[start:end]):
-                        embedding = embeddings_list[idx]
-                        self.nx_graph.nodes[node_idx]['embedding'] = embedding
-                        self.embeddings_list.append(embedding)
-
-                    start = end
-
-                except Exception as e:
-                    print("Error: {}, Indices: {}-{}".format(e, start, end))
-
-        self.embeddings_tensor = torch.cat(self.embeddings_list, dim=1)
-
-        if self.save_path is not None:
-            file_name = f'prime_kg_embeddings_tensor_{self.embeddings_tensor.size(0)}'
-            pickle.dump(self.embeddings_tensor, open(os.path.join(ROOT_DIR, self.save_path, file_name), 'wb'))
+        return self.embeddings_tensor
 
     def validate_edges(self):
         # Convert the DataFrame to a set of tuples for fast lookup
@@ -242,21 +231,10 @@ def combine_rows(df: pd.DataFrame) -> pd.DataFrame:
     return combined_df
 
 
-node_types = ['gene/protein', 'drug', 'effect/phenotype', 'disease', 'biological_process', 'molecular_function',
-              'cellular_component', 'exposure', 'pathway', 'anatomy']
-
-edge_types = ["protein_protein", "drug_protein", "contraindication", "indication", "off_label_use", "drug_drug",
-              "phenotype_protein", "phenotype_phenotype", "disease_phenotype_negative",
-              "disease_phenotype_positive", "disease_protein", "disease_disease", "drug_effect",
-              "bioprocess_bioprocess", "molfunc_molfunc", "cellcomp_cellcomp", "molfunc_protein",
-              "cellcomp_protein", "bioprocess_protein", "exposure_protein", "exposure_disease", "exposure_exposure",
-              "exposure_bioprocess", "exposure_molfunc", "exposure_cellcomp", "pathway_pathway", "pathway_protein",
-              "anatomy_anatomy", "anatomy_protein_present", "anatomy_protein_absent"]
-
-prime_kg_path = 'datasets/kg.csv'
-drug_features_path = 'datasets/drug_features.csv'
-disease_features_path = 'datasets/disease_features.csv'
-
-filter_edge_types = ["indication", "drug_drug", "phenotype_phenotype", "disease_phenotype_positive", "disease_disease", "drug_effect", "phenotype_protein", "disease_protein", "anatomy_anatomy", "anatomy_protein_absent"]
-
-gb = GraphBuilder(prime_kg_path, drug_features_path, disease_features_path, node_types=node_types, edge_types=edge_types, filter_edge_or_node_types=filter_edge_types, save_path='datasets')
+# prime_kg_path = 'datasets/kg.csv'
+# drug_features_path = 'datasets/drug_features.csv'
+# disease_features_path = 'datasets/disease_features.csv'
+#
+# filter_edge_types = ["indication", "drug_drug", "phenotype_phenotype", "disease_phenotype_positive", "disease_disease", "drug_effect", "phenotype_protein", "disease_protein", "anatomy_anatomy", "anatomy_protein_absent"]
+#
+# gb = GraphBuilder(prime_kg_path, drug_features_path, disease_features_path, filter_edge_or_node_types=filter_edge_types, save_path='datasets')

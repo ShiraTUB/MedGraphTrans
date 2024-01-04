@@ -1,13 +1,14 @@
 import os
 import argparse
-import pickle
 import torch
 import openai
 import random
+import pickle
 
 import networkx as nx
 import pandas as pd
 
+from typing import List
 from config import ROOT_DIR, OPENAI_API_KEY
 from KnowledgeExtraction.subgraph_builder import SubgraphBuilder
 from src.utils import meta_relations_dict, embed_text
@@ -30,40 +31,58 @@ args = parser.parse_args()
 def initiate_question_graph(
         graph: nx.Graph,
         question: str,
-        answer_choices: [str],
+        answer_choices: List[str],
         correct_answer: int,
         question_entities_indices_list: list,
         answer_entities_dict: dict,
         prime_kg: nx.Graph,
         question_index: int
 ) -> nx.Graph:
-    question_embeddings = torch.tensor(openai.Embedding.create(input=[question], model="text-embedding-ada-002")['data'][0]['embedding']).unsqueeze(1)
-    question_index = question_index
+    """
+
+    Args:
+        graph: an empty nx.Graph()
+        question: the question str from MedMCQA
+        answer_choices: the corresponding answer choices to question
+        correct_answer: the correct answer according the MedMCQA
+        question_entities_indices_list: a list of entities extracted from question
+        answer_entities_dict: a dictionary of answer choices and their corresponding extracted entities
+        prime_kg: the kg from which we extract knowledge
+        question_index: the index of the question in MedMCQA (it's placement in the data-set)
+
+    Returns: the generated nx.Graph
+
+    """
+
+    # Set device to GPU if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Collect all texts for batch embedding
+    all_texts = [question] + answer_choices
+    embeddings = openai.Embedding.create(input=all_texts, model="text-embedding-ada-002")['data']
+    embeddings = [torch.tensor(item['embedding']).to(device) for item in embeddings]
+    question_embeddings = embeddings[0]
 
     graph.add_node(question_index, embedding=question_embeddings, type="question", index=question_index, name=question)
 
     for question_entity_index in question_entities_indices_list:
         target_node = prime_kg.nodes[question_entity_index]
-        target_node_type = target_node['type']
         graph.add_node(question_entity_index, **target_node)
-        graph.add_edge(question_index, question_entity_index, relation=f"question_{target_node_type}")
+        graph.add_edge(question_index, question_entity_index, relation=f"question_{target_node['type']}")
 
-    for choice_index, answer_choice in enumerate(answer_choices):
-        answer_embeddings = torch.tensor(openai.Embedding.create(input=[answer_choice], model="text-embedding-ada-002")['data'][0]['embedding']).unsqueeze(1)
-
+    for choice_index, answer_embeddings in enumerate(embeddings[1:]):
         answer_index = random.randint(10 ** 9, (10 ** 10) - 1)
-        graph.add_node(answer_index, embedding=answer_embeddings, type="answer", index=answer_index, name=answer_choice, answer_choice_index=choice_index)
+        graph.add_node(answer_index, embedding=answer_embeddings, type="answer", index=answer_index, name=answer_choices[choice_index], answer_choice_index=choice_index)
 
         if choice_index == correct_answer:
             graph.add_edge(question_index, answer_index, relation="question_correct_answer")
         else:
             graph.add_edge(question_index, answer_index, relation="question_wrong_answer")
 
-        for answer_entity_index in answer_entities_dict[answer_choice]:
+        for answer_entity_index in answer_entities_dict[answer_choices[choice_index]]:
             target_node = prime_kg.nodes[answer_entity_index]
-            target_node_type = target_node['type']
             graph.add_node(answer_entity_index, **target_node)
-            graph.add_edge(answer_index, answer_entity_index, relation=f"answer_{target_node_type}")
+            graph.add_edge(answer_index, answer_entity_index, relation=f"answer_{target_node['type']}")
 
     return graph
 
@@ -84,6 +103,7 @@ if __name__ == "__main__":
                                        trie_path=trie_path,
                                        )
 
+    # Save a list of all nodes indices for efficient mapping later on
     node_indices_list = [data['index'] for _, data in subgraph_builder.kg.nodes(data=True)]
 
     for purpose in ['train', 'validation', 'test']:
@@ -94,6 +114,7 @@ if __name__ == "__main__":
 
         question_uid_to_row_id_map = {}
         # iterate over medmcqa_df and create a graph per question
+
         for i, row in medmcqa_df.iterrows():
 
             subgraph_builder.nx_subgraph = nx.Graph()
@@ -107,6 +128,7 @@ if __name__ == "__main__":
 
             if len(entities_list) == 0:
                 continue
+
             # reconstruct answer indices for initiating the question graph:
             start = num_entities_list[0]
             end = start + num_entities_list[1]
@@ -119,9 +141,11 @@ if __name__ == "__main__":
                 end += num_entities_list[min(index, len(num_entities_list) - 1)]
                 index += 1
 
+            # Initiate question graph
             subgraph_builder.nx_subgraph = initiate_question_graph(subgraph_builder.nx_subgraph, question, answer_choices, correct_answer, entities_indices_list[:num_entities_list[0]], answer_entities_dict, subgraph_builder.kg,
                                                                    question_index=int(i))
 
+            # Extract knowledge
             extracted_edges, extracted_edge_indices = subgraph_builder.extract_knowledge_from_kg(question, hops=2, neighbors_per_hop=10, entities_list=entities_list)
 
             if extracted_edge_indices is not None:
