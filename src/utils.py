@@ -1,9 +1,3 @@
-import openai
-import numpy as np
-from config import OPENAI_API_KEY
-
-openai.api_key = OPENAI_API_KEY
-
 meta_relations_dict = {
     "indication": ('drug', 'indication', 'disease'),
     "phenotype_protein": ('effect/phenotype', 'phenotype_protein', 'gene/protein'),
@@ -80,14 +74,3 @@ metadata = (['question', 'drug', 'disease', 'effect/phenotype', 'gene/protein', 
              ("gene/protein", "rev_answer_gene/protein", 'answer'),
              ("answer", "answer_anatomy", "anatomy"),
              ("anatomy", "rev_answer_anatomy", "answer")])
-
-
-def embed_text(text):
-    """please implement this function according to your domain and use-case"""
-    try:
-        embeddings = openai.Embedding.create(input=[text], model="text-embedding-ada-002")['data'][0]['embedding']
-        open_ai_embedding = np.reshape(np.asarray(embeddings), (-1, np.asarray(embeddings).shape[0]))
-        return open_ai_embedding
-
-    except Exception as e:
-        print("Error: {}, String: {}".format(e, text))

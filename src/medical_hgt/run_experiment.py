@@ -45,7 +45,7 @@ class ExperimentsParams:
         return f'{folder_path}/experiment-{self.num_epochs}_epochs-{self.lr}_lr-{self.channels}_channels-{self.num_heads}_head-{self.num_layers}_layers'
 
 
-def run_experiments(experiment_params, device, llm, llm_feedbacks_dict, question_to_subgraphs_mapping, prime_kg, qa_dataset, data_loaders):
+def run_experiments(experiment_params, device, llm, train_llm_feedbacks_dict, val_llm_feedbacks_dict, question_to_subgraphs_mapping, prime_kg, qa_dataset, data_loaders):
     """Runs a multi-trial experiment using the given ExperimentsParams."""
 
     file_name = f'{experiment_params.get_file_name()}.pth'
@@ -57,7 +57,8 @@ def run_experiments(experiment_params, device, llm, llm_feedbacks_dict, question
                                file_name=file_name,
                                qa_dataset=qa_dataset,
                                prime_kg=prime_kg,
-                               llm_feedbacks_dict=llm_feedbacks_dict,
+                               train_llm_feedbacks_dict=train_llm_feedbacks_dict,
+                               val_llm_feedbacks_dict=val_llm_feedbacks_dict,
                                question_to_subgraphs_mapping=question_to_subgraphs_mapping,
                                num_epochs=experiment_params.num_epochs,
                                lr=experiment_params.lr)
@@ -136,12 +137,13 @@ llm = None  # LLM(model, tokenizer)
 for experiment_params in experiments_list:
     experiment_results_list = []
     experiment_result = run_experiments(experiment_params,
-                                         device=device,
-                                         llm=llm,
-                                         llm_feedbacks_dict=llm_feedbacks_dict2,
-                                         question_to_subgraphs_mapping=question_to_subgraphs_mapping,
-                                         prime_kg=prime_kg,
-                                         qa_dataset=qa_dataset,
-                                         data_loaders=loaders)
+                                        device=device,
+                                        llm=llm,
+                                        train_llm_feedbacks_dict=llm_feedbacks_dict2,
+                                        val_llm_feedbacks_dict=llm_feedbacks_dict1,
+                                        question_to_subgraphs_mapping=question_to_subgraphs_mapping,
+                                        prime_kg=prime_kg,
+                                        qa_dataset=qa_dataset,
+                                        data_loaders=loaders)
 
     experiment_results_list.append(experiment_result)

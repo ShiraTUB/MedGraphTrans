@@ -18,7 +18,8 @@ def train(llm,
           file_name,
           qa_dataset,
           prime_kg,
-          llm_feedbacks_dict,
+          train_llm_feedbacks_dict,
+          val_llm_feedbacks_dict,
           question_to_subgraphs_mapping,
           num_epochs=30,
           lr=0.001,
@@ -33,8 +34,10 @@ def train(llm,
         file_name: used for saving the model during anf after training
         qa_dataset: the loaded MedMCQA dataset
         prime_kg: nx graph object a subset of PrimKG
-        llm_feedbacks_dict: a mapping from questions in the MedMCQA dataset to the pre-computed LLM Feedback, answering the questions with and without context
-        question_to_subgraphs_mapping: a mapping from questions in the MedMCQA dataset to their corresponding heterogeneous graphs' nodes (in for of tuples (node_type, node_uid)
+        train_llm_feedbacks_dict: a mapping from questions in the MedMCQA train dataset to the pre-computed LLM Feedback, answering the questions with and without context
+        train_question_to_subgraphs_mapping: a mapping from questions in the MedMCQA train dataset to their corresponding heterogeneous graphs' nodes (in for of tuples (node_type, node_uid)
+        val_llm_feedbacks_dict: a mapping from questions in the MedMCQA val dataset to the pre-computed LLM Feedback, answering the questions with and without context
+        question_to_subgraphs_mapping: a mapping from questions in the MedMCQA val dataset to their corresponding heterogeneous graphs' nodes (in for of tuples (node_type, node_uid)
         num_epochs: upper bound for the number of epochs
         lr: learning rate
         link_prediction_loss_weight: the weight of the link prediction performance to the performance of the model
@@ -94,7 +97,7 @@ def train(llm,
 
             link_prediction_loss = compute_link_prediction_loss(pos_train_pred, neg_train_pred, pos_train_y, neg_train_y, device=device)
 
-            llm_relevancy_loss = compute_llm_relevancy_loss(batch, z_dict, llm_feedbacks_dict)
+            llm_relevancy_loss = compute_llm_relevancy_loss(batch, z_dict, train_llm_feedbacks_dict)
 
             # Weighted dual-task loss
             total_loss = link_prediction_loss_weight * link_prediction_loss + llm_relevancy_loss_weight * llm_relevancy_loss
@@ -134,7 +137,7 @@ def train(llm,
 
         # The validation ROC AUC is computed by running through the validation set
         # at the end of every epoch.
-        val_pred, val_true, val_llm_acc_dict = evaluate(llm, medical_hgt, split_loaders, 'val', device, eval_qa_dataset, prime_kg, llm_feedbacks_dict, question_to_subgraphs_mapping)
+        val_pred, val_true, val_llm_acc_dict = evaluate(llm, medical_hgt, split_loaders, 'val', device, eval_qa_dataset, prime_kg, val_llm_feedbacks_dict, question_to_subgraphs_mapping)
 
         val_roc_auc = roc_auc_score(val_true.numpy(), val_pred.numpy)
         val_precision = precision(val_pred, val_true)
@@ -163,7 +166,7 @@ def train(llm,
     state_dict = copy.deepcopy(medical_hgt.state_dict())
 
     # Run through the test set
-    test_pred, test_true, test_llm_acc_dict = evaluate(llm, medical_hgt, split_loaders, 'test', device, eval_qa_dataset, prime_kg, llm_feedbacks_dict, question_to_subgraphs_mapping)
+    test_pred, test_true, test_llm_acc_dict = evaluate(llm, medical_hgt, split_loaders, 'test', device, eval_qa_dataset, prime_kg, val_llm_feedbacks_dict, question_to_subgraphs_mapping)
 
     test_roc_auc = roc_auc_score(test_true.numpy(), test_pred.numpy)
     test_precision = precision(test_pred, test_true)

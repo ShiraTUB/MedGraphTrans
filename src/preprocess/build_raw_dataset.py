@@ -5,13 +5,14 @@ import openai
 import random
 import pickle
 
+import numpy as np
 import networkx as nx
 import pandas as pd
 
 from typing import List
 from config import ROOT_DIR, OPENAI_API_KEY
 from KnowledgeExtraction.subgraph_builder import SubgraphBuilder
-from src.utils import meta_relations_dict, embed_text
+from src.utils import meta_relations_dict
 from src.preprocess.medical_ner import medical_ner
 
 openai.api_key = OPENAI_API_KEY
@@ -85,6 +86,17 @@ def initiate_question_graph(
             graph.add_edge(answer_index, answer_entity_index, relation=f"answer_{target_node['type']}")
 
     return graph
+
+
+def embed_text(text):
+    """please implement this function according to your domain and use-case"""
+    try:
+        embeddings = openai.Embedding.create(input=[text], model="text-embedding-ada-002")['data'][0]['embedding']
+        open_ai_embedding = np.reshape(np.asarray(embeddings), (-1, np.asarray(embeddings).shape[0]))
+        return open_ai_embedding
+
+    except Exception as e:
+        print("Error: {}, String: {}".format(e, text))
 
 
 if __name__ == "__main__":

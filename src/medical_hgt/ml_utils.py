@@ -7,10 +7,7 @@ import torch.nn.functional as F
 
 from dataclasses import dataclass
 
-from config import OPENAI_API_KEY
 from src.medical_hgt.llm import LLMFeedback
-
-openai.api_key = OPENAI_API_KEY
 
 
 def find_most_relevant_nodes(batch, z_dict, question_nodes_embedding, subgraph_tuples, prime_gk, k=1):
