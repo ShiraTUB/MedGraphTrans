@@ -1,0 +1,369 @@
+Question 1207: Histopathologically rosettes are seen in
+LLM's response without context: D: Medulloblastoma --> WRONG!
+LLM's response with context: A: Retinoblastoma --> CORRECT!
+
+
+Question 3124: A 30 year old female is on antibiotics with prolonged IV cannulation, has spike of fever, the likely cause is :
+LLM's response without context: A: Pseudomonas aerugenosa --> WRONG!
+LLM's response with context: B: Coagulase negative staphylococcus --> CORRECT!
+
+
+Question 2952: A female in labor ward was administered opioid analgesic. Which of the following drugs should be kept ready for emergency?
+LLM's response without context: D: Fentanyl --> WRONG!
+LLM's response with context: B: Naloxone --> CORRECT!
+
+
+Question 3223: Surveyor is used on master cast to:
+LLM's response without context: A: Locate guiding planes --> WRONG!
+LLM's response with context: D: Locate undercuts to be used for retention or to be blocked out --> CORRECT!
+
+
+Question 2420: All ceramic crown is placed on mandibular canine, what can we do to prolong the life of crown:
+LLM's response without context: C: Out of occlusion (Infraocclusion). --> WRONG!
+LLM's response with context: D: Group function. --> CORRECT!
+
+
+Question 3055: Which of the following is rare in children?
+LLM's response without context: D: Small pox --> WRONG!
+LLM's response with context: B: Dental cysts --> CORRECT!
+
+
+Question 1330: A smoker presents with recent onset breathlessness and ECG was done. The diagnosis is?
+LLM's response without context: C: Acute myocardial infarction --> WRONG!
+LLM's response with context: D: Multi-focal atrial tachycardia --> CORRECT!
+
+
+Question 4067: A healthy middle-aged man was arguing with his brother and got emotionally upset due to the arguments with his brother, he suddenly developed chest pain and collapsed. When brought to the hospital' hewas declared dead.What is the diagnosis?
+LLM's response without context: D: Chronic ischemic cardiomyopathy --> WRONG!
+LLM's response with context: A: Takotsubo cardiomyopathy --> CORRECT!
+
+
+Question 3739: Essential fatty acid present in breast milk which is required for normal growth of child
+is:
+LLM's response without context: D: EPA --> WRONG!
+LLM's response with context: C: Docosahexanoic acid --> CORRECT!
+
+
+Question 1699: Algophobia is:
+LLM's response without context: A: Phobia of closed space. --> WRONG!
+LLM's response with context: C: Phobia of pain. --> CORRECT!
+
+
+Question 2626: Which of the following inborn errors of metabolism is associated with mental retardation –a)  Alkaptonuriab)  Homocystinuriac)  Pentosuriad)  Galactosemia
+LLM's response without context: D: ac --> WRONG!
+LLM's response with context: C: bd --> CORRECT!
+
+
+Question 2823: Annealing is also known as:
+LLM's response without context: D: Stress relieving heat treatment --> WRONG!
+LLM's response with context: A: Soft hardening treatment --> CORRECT!
+
+
+Question 3371: Standard deviation of means measures -
+LLM's response without context: A: Non-sampling errors --> WRONG!
+LLM's response with context: B: Sampling error --> CORRECT!
+
+
+Question 2720: Type III gold alloy does not have following features except:
+LLM's response without context: D: Less gold than type IV --> WRONG!
+LLM's response with context: C: Easily burnishable than type IV --> CORRECT!
+
+
+Question 3026: Which of the following is true for octreotide?
+LLM's response without context: A: Stimulates growth hormone secretion --> WRONG!
+LLM's response with context: B: Used in secretory diarrhea --> CORRECT!
+
+
+Question 3784: Not a feature of infective endocarditis:
+LLM's response without context: D: Perforation of cusp. --> WRONG!
+LLM's response with context: C: Thrombus in left atria. --> CORRECT!
+
+
+Question 3180: Fear of closed space, open space, and crowded space is called as:
+LLM's response without context: B: Agoraphobia --> WRONG!
+LLM's response with context: C: Claustrophobia --> CORRECT!
+
+
+Question 3552: Augmented genioplasty is done by:
+LLM's response without context: C: Silicone implants --> WRONG!
+LLM's response with context: A: Sliding horizontal osteotomy --> CORRECT!
+
+
+Question 3385: Innervation of pulp is from
+LLM's response without context: D: Hypoglossal nerve --> WRONG!
+LLM's response with context: A: Trigeminal nerve --> CORRECT!
+
+
+Question 3269: Rhodopsin deficiency is chiefly associated with:
+LLM's response without context: A: Vitamin D deficiency --> WRONG!
+LLM's response with context: C: Vitamin A deficiency --> CORRECT!
+
+
+Question 3416: Lateral part of middle cranial fossa and posterior
+cranial fossa are divided by:
+LLM's response without context: D: Sphenoid bone --> WRONG!
+LLM's response with context: A: Petrous temporal bone --> CORRECT!
+
+
+Question 2250: There is <2 cm painful swelling responsive to salicylates, this is:
+LLM's response without context: D: Osteoblastoma --> WRONG!
+LLM's response with context: C: Osteoid osteoma --> CORRECT!
+
+
+Question 2158: Which of these findings is not specific of blast injury?
+LLM's response without context: B: Bruise --> WRONG!
+LLM's response with context: D: Fracture --> CORRECT!
+
+
+Question 3899: The only tissue - borne functional appliance is
+LLM's response without context: A: Activator --> WRONG!
+LLM's response with context: D: Frankel --> CORRECT!
+
+
+Question 2724: Most common cyst associated with adjoining vital teeth?
+LLM's response without context: D: Lateral periodontal cyst --> WRONG!
+LLM's response with context: A: Dentigerous cyst --> CORRECT!
+
+
+Question 2980: Antischkow cells are present in all of the following conditions except
+LLM's response without context: B: Iron deficiency anaemia --> WRONG!
+LLM's response with context: D: herpes simplex --> CORRECT!
+
+
+Question 2674: In a patient of oral & maxillofacial trauma, cervical injury is not ruled out, intubation of preference will be:
+LLM's response without context: C: Normal laryngoscopy & endotracheal intubation --> WRONG!
+LLM's response with context: D: Fiberoptic intubation --> CORRECT!
+
+
+Question 3732: All of the following puy NiUiugiLai changes are seen in pregnancy except:
+LLM's response without context: B: Increased cardiac output --> WRONG!
+LLM's response with context: D: Increased peripheral resistance --> CORRECT!
+
+
+Question 2902: A lady delivered a normal vaginal delivery and was discharged. On third day she came back with fever, tachycardia and seizures. Fundus showed papilledema with no focal deficits. What is the most likely diagnosis?
+LLM's response without context: B: Meningitis --> WRONG!
+LLM's response with context: A: Coical vein thrombosis --> CORRECT!
+
+
+Question 3111: Hepcidin inhibits which of the following?
+LLM's response without context: A: Hepheastin --> WRONG!
+LLM's response with context: D: Ferropoin --> CORRECT!
+
+
+Question 2674: In a patient of oral & maxillofacial trauma, cervical injury is not ruled out, intubation of preference will be:
+LLM's response without context: C: Normal laryngoscopy & endotracheal intubation --> WRONG!
+LLM's response with context: D: Fiberoptic intubation --> CORRECT!
+
+
+Question 2262: A 2 weeks old infant has conjunctivitis, which later developed into respiratory distress and pneumonia. Chest X-ray showed bilateral lung infiltrates. WBC count was 14,300/dL. Which of the following is the most likely organism?
+LLM's response without context: D: Haemophilus influenzae --> WRONG!
+LLM's response with context: A: Chlamydia trachomatis --> CORRECT!
+
+
+Question 3684: A 26 years old healthy female got pregnant for 1st time and LSCS was done for fetal distress. Mild hypeension was present during pregnancy. Two days after delivery she had headache and seizures but proteinuria was not seen. CT scan shows 2 x 3 cm parasagittal hematoma. Diagnosis is:
+LLM's response without context: B: Hypeensive intracranial hemorrhage --> WRONG!
+LLM's response with context: C: Sagittal sinus thrombosis --> CORRECT!
+
+
+Question 3026: Which of the following is true for octreotide?
+LLM's response without context: A: Stimulates growth hormone secretion --> WRONG!
+LLM's response with context: B: Used in secretory diarrhea --> CORRECT!
+
+
+Question 3223: Surveyor is used on master cast to:
+LLM's response without context: A: Locate guiding planes --> WRONG!
+LLM's response with context: D: Locate undercuts to be used for retention or to be blocked out --> CORRECT!
+
+
+Question 3696: In an internal derangement of TMJ fracture, panoramic view has been taken for the patient. To confirm our diagnosis, we may take the help of
+LLM's response without context: C: Arthroscopy --> WRONG!
+LLM's response with context: A: MRI --> CORRECT!
+
+
+Question 166: Cystinuria is characterised by –
+LLM's response without context: C: Deposition of cystine crystals in Renal tubular cells --> WRONG!
+LLM's response with context: D: Recurrent urinary caliculi --> CORRECT!
+
+
+Question 3703: Which of the following malignancy is not caused by Human Papilloma Virus (HPV) infection?
+LLM's response without context: C: Tonsillar carcinoma --> WRONG!
+LLM's response with context: D: Nasopharyngeal carcinoma --> CORRECT!
+
+
+Question 4112: Which of the following material is not applied for root conditioning after placement of MTA?
+LLM's response without context: B: Citric acid --> WRONG!
+LLM's response with context: D: EDTA --> CORRECT!
+
+
+Question 3839: A 9 year old child's mother comes to dental clinic with the complaint of oral ulceration, fever and shedding of skin of palms and soles; she is giving history of premature shedding of teeth and increased sweating, she is also giving one month history of using any new teething gel available in market. The child is suffering from.
+LLM's response without context: B: Pemphigus vulgaris --> WRONG!
+LLM's response with context: A: Acrodynia --> CORRECT!
+
+
+Question 988: Which or tile following is true about antigenic drift?
+LLM's response without context: B: It is a result of framesshift mutation --> WRONG!
+LLM's response with context: D: It mostly affects the matrix protein --> CORRECT!
+
+
+Question 3728: A patient in an ICCU is on CVP line. His blood culture shows growth of Gram +ve cocci which
+are catalase positive and coagulase negative. The most likely etiological agent is:
+LLM's response without context: A: Staph. aureus --> WRONG!
+LLM's response with context: B: Staph. epidermidis --> CORRECT!
+
+
+Question 4061: A middle aged female presents with slowly progressive weakness of lower limbs, spasticity and recent onset hesitancy of Micturition. On neurological examination there is evidence of dorsal myelopathy. MRI scan of spine reveals middorsal intradural contrast enhancing mass lesion. Diagnosis is:
+LLM's response without context: D: Epidermoid cyst --> WRONG!
+LLM's response with context: C: Meningioma --> CORRECT!
+
+
+Question 3725: A 28 years old female presented with the history of recurrent aboions, pain in calves for 4 years. Patient is suffering from congenital deficiency of:
+LLM's response without context: D: Factor XIII --> WRONG!
+LLM's response with context: A: Protein C --> CORRECT!
+
+
+Question 4109: First line therapy in anaphylactic shock is:
+LLM's response without context: D: Epinephrine 1 ml of 1:10000 intravenously --> WRONG!
+LLM's response with context: C: Epinephrine .5 ml of 1:1000 IM --> CORRECT!
+
+
+Question 431: The following is used in which procedure in gynecology?
+LLM's response without context: B: Endometrial Biopsy --> WRONG!
+LLM's response with context: A: Pap smear --> CORRECT!
+
+
+Question 3541: The red zones of lips have:
+LLM's response without context: B: 75% sebaceous glands --> WRONG!
+LLM's response with context: C: very small number of sebaceous glands, if any --> CORRECT!
+
+
+Question 2761: Property affected due to diameter of nerve fiber/axon?
+LLM's response without context: D: Amplitude --> WRONG!
+LLM's response with context: A: Conduction velocity --> CORRECT!
+
+
+Question 3962: One day after complete mouth extraction, blue black spots are seen on the neck of the patients. These spots indicate:
+LLM's response without context: D: Cellulitis --> WRONG!
+LLM's response with context: B: Postoperative ecchymosis --> CORRECT!
+
+
+Question 2444: Addison's disease is related to:
+LLM's response without context: A: Adrenal medulla --> WRONG!
+LLM's response with context: B: Adrenal cortex --> CORRECT!
+
+
+Question 1038: Risk factors for Coronary artery disease are all except
+LLM's response without context: A: Smoking --> WRONG!
+LLM's response with context: D: Alcohol consumption --> CORRECT!
+
+
+Question 3701: All of the following are the complications in the new born of a diabetic mother except –
+LLM's response without context: D: Hypomagnesemia --> WRONG!
+LLM's response with context: B: Hyperglycemia --> CORRECT!
+
+
+Question 2425: Acetone breath is a feature of:
+LLM's response without context: A: Liver disease --> WRONG!
+LLM's response with context: D: Diabetes mellitus --> CORRECT!
+
+
+Question 3287: Which one of the following is a connective tissue tumour:
+LLM's response without context: C: Carcinoma --> WRONG!
+LLM's response with context: A: Lipoma --> CORRECT!
+
+
+Question 2118: Most probable chance of developing caries in the following curve is at:
+LLM's response without context: D: Point D --> WRONG!
+LLM's response with context: B: Point B --> CORRECT!
+
+
+Question 4116: During exercise, the most rapid way to synthesize ATP is:
+LLM's response without context: B: Glycolysis --> WRONG!
+LLM's response with context: D: Creatine phosphate --> CORRECT!
+
+
+Question 897: Mode is
+LLM's response without context: D: Best measure for central tendency in a highly scented distribution --> WRONG!
+LLM's response with context: A: Value that most frequently occurs in a set of observation --> CORRECT!
+
+
+Question 2794: A young female presents to OPD with a spontaneous aboion and secondary amenorrhea since then. FSH was found to be 6 IU/mL. What is the most probable cause of amenorrhea?
+LLM's response without context: B: Pituitary failure --> WRONG!
+LLM's response with context: D: Uterine synechiae --> CORRECT!
+
+
+Question 2092: Acetone free methyl alcohol is present in Leishmann's stain for:
+LLM's response without context: C: It prevents the cells from sticking to the slide surface --> WRONG!
+LLM's response with context: D: It stops metabolic and enzymatic activity of the cell --> CORRECT!
+
+
+Question 3300: Acute Barbiturate poisoning results in:
+LLM's response without context: D: Convulsions --> WRONG!
+LLM's response with context: C: Respiratory failure --> CORRECT!
+
+
+Question 4017: A female come to gynaeoPD for preconceptual counseling, with history of two second trimester aboions. What is the next investigation you will advice
+LLM's response without context: D: chromosomal abnormalities --> WRONG!
+LLM's response with context: A: TVS --> CORRECT!
+
+
+Question 2113: High copper dental amalgams are superior to other amalgams because high copper dental amalgams:
+LLM's response without context: D: Have less resistance to tarnish and corrosion --> WRONG!
+LLM's response with context: A: Have less marginal breakdown --> CORRECT!
+
+
+Question 2438: Inflammation of the periapical tissue is sustained by:
+LLM's response without context: D: Pus cells --> WRONG!
+LLM's response with context: C: Microorganisms --> CORRECT!
+
+
+Question 2509: "Hair-on-end" appearance in a skull roentgenogram is
+seen in :
+LLM's response without context: A: Fibrous dysplasia --> WRONG!
+LLM's response with context: B: Thalassemia --> CORRECT!
+
+
+Question 3001: Cardiac dysarrythmia during extraction is caused by:
+LLM's response without context: A: Trochlear nerve --> WRONG!
+LLM's response with context: C: TrigeminaL nerve --> CORRECT!
+
+
+Question 3447: Lower density usually means
+LLM's response without context: A: High strength --> WRONG!
+LLM's response with context: D: Lighter weight --> CORRECT!
+
+
+Question 3303: Optic atrophy is not seen in:
+LLM's response without context: C: Central retinal aerial occlusion (CRAO) --> WRONG!
+LLM's response with context: D: Polypoidal choroidal vasculopathy --> CORRECT!
+
+
+Question 4067: A healthy middle-aged man was arguing with his brother and got emotionally upset due to the arguments with his brother, he suddenly developed chest pain and collapsed. When brought to the hospital' hewas declared dead.What is the diagnosis?
+LLM's response without context: D: Chronic ischemic cardiomyopathy --> WRONG!
+LLM's response with context: A: Takotsubo cardiomyopathy --> CORRECT!
+
+
+Question 3656: Which of the following vitamin is synthesized in vivo, in the body by humans?
+LLM's response without context: D: Folic acid --> WRONG!
+LLM's response with context: A: Niacin --> CORRECT!
+
+
+Question 3251: Which of the following drug is commonly used for community acquired pneumonia in OPD?
+LLM's response without context: B: Ceftriaxone --> WRONG!
+LLM's response with context: C: Azithromycin --> CORRECT!
+
+
+Question 3360: Post parotidectomy, patient feels numb while shaving. Which nerve was involved ?
+LLM's response without context: A: Facial --> WRONG!
+LLM's response with context: D: Greater auricular --> CORRECT!
+
+
+Question 2789: Which of the following drug has gameticidal action against all species of plasmodium?
+LLM's response without context: B: Chloroquine --> WRONG!
+LLM's response with context: A: Primaquine --> CORRECT!
+
+
+Question 2457: Gardner syndrome does not include:
+LLM's response without context: D: Impacted permanent teeth --> WRONG!
+LLM's response with context: C: Osteosarcoma --> CORRECT!
+
+

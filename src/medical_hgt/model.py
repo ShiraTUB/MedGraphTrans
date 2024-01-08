@@ -11,9 +11,10 @@ from src.utils import node_types, metadata
 
 
 class HGT(torch.nn.Module):
-    def __init__(self, channels, num_heads, num_layers):
+    def __init__(self, channels, num_heads, num_layers, batch_size):
         super().__init__()
 
+        self.batch_size = batch_size
         self.lin_dict = torch.nn.ModuleDict()
         self.bn_dict = torch.nn.ModuleDict()  # Adding batch normalization layers
 
@@ -26,11 +27,11 @@ class HGT(torch.nn.Module):
             conv = HGTConv(channels, channels, metadata, num_heads, group='sum')
             self.convs.append(conv)
 
-    def forward(self, data, batch_size):
+    def forward(self, data):
         x_dict = {node_type: self.lin_dict[node_type](x).relu_() for node_type, x in data.x_dict.items()}
 
-        if data.x_dict['question'].size(0) == batch_size:
-            x_dict = {node_type: self.bn_dict[node_type](x) for node_type, x in x_dict.items()}  # Apply batch normalization
+        if data.x_dict['question'].size(0) == self.batch_size:
+             x_dict = {node_type: self.bn_dict[node_type](x) for node_type, x in x_dict.items()}  # Apply batch normalization
 
         for conv in self.convs:
             x_dict = conv(x_dict, data.edge_index_dict)
@@ -59,7 +60,8 @@ class Decoder(torch.nn.Module):
         pos_edge_feat_question = x_question[pos_edge_label_index[0]]
         pos_edge_feat_answer = x_answer[pos_edge_label_index[1]]
 
-        pos_pred = F.sigmoid((pos_edge_feat_question * pos_edge_feat_answer).sum(dim=-1))
+        # pos_pred = F.sigmoid((pos_edge_feat_question * pos_edge_feat_answer).sum(dim=-1))
+        pos_pred = (pos_edge_feat_question * pos_edge_feat_answer).sum(dim=-1)
 
         if pos_pred.dim() == 0:
             pos_pred = pos_pred.view(1)
@@ -67,7 +69,8 @@ class Decoder(torch.nn.Module):
         neg_edge_feat_question = x_question[neg_edge_label_index[0]]
         neg_edge_feat_answer = x_answer[neg_edge_label_index[1]]
 
-        neg_pred = F.sigmoid((neg_edge_feat_question * neg_edge_feat_answer).sum(dim=-1))
+        # neg_pred = F.sigmoid((neg_edge_feat_question * neg_edge_feat_answer).sum(dim=-1))
+        neg_pred = (neg_edge_feat_question * neg_edge_feat_answer).sum(dim=-1)
 
         if neg_pred.dim() == 0:
             neg_pred = neg_pred.view(1)
@@ -76,9 +79,10 @@ class Decoder(torch.nn.Module):
 
 
 class MedicalHGT(torch.nn.Module):
-    def __init__(self, channels=64, num_heads=2, num_layers=1):
+    def __init__(self, channels=64, num_heads=2, num_layers=1, batch_size=32):
         super().__init__()
-        self.hgt = HGT(channels=channels, num_heads=num_heads, num_layers=num_layers)
+        self.batch_size = batch_size
+        self.hgt = HGT(channels=channels, num_heads=num_heads, num_layers=num_layers, batch_size=self.batch_size)
         self.decoder = Decoder()
         # self.grads = {}  # for debugging purposes
 

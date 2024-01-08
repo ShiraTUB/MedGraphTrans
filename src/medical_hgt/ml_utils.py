@@ -1,7 +1,7 @@
-import openai
 import torch
 import heapq
 import time
+from torch.optim.lr_scheduler import LRScheduler
 
 import torch.nn.functional as F
 
@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from src.medical_hgt.llm import LLMFeedback
 
 
-def find_most_relevant_nodes(batch, z_dict, question_nodes_embedding, subgraph_tuples, prime_gk, k=1):
+def find_most_relevant_nodes(batch, z_dict, question_nodes_embedding, subgraph_tuples, prime_gk, k=2):
     """
 
     Args:
@@ -142,19 +142,13 @@ def compute_link_prediction_loss(pos_preds: torch.Tensor, neg_preds: torch.Tenso
     """
 
     # Assign weights
-    pos_weight = torch.tensor([2.0])  # As we have 2-3 times more negative samples
+    pos_weight = torch.tensor([2.0])  # As we have 2 times more negative samples
     neg_weight = torch.tensor([1.0])
 
-    # Calculate loss for positive predictions
-    pos_labels = pos_labels.view(-1).float()
-    pos_loss = F.binary_cross_entropy_with_logits(pos_preds.to(device), pos_labels.to(device), weight=pos_weight.to(device))
+    preds_tensor = torch.cat((pos_preds, neg_preds), dim=0)
+    trues_tensor = torch.cat((pos_labels, neg_labels), dim=0)
 
-    # Calculate loss for negative predictions
-    neg_labels = neg_labels.view(-1).float()
-    neg_loss = F.binary_cross_entropy_with_logits(neg_preds.to(device), neg_labels.to(device), weight=neg_weight.to(device))
-
-    # Combine the losses
-    total_loss = (pos_loss + neg_loss) / 2
+    total_loss = F.binary_cross_entropy_with_logits(preds_tensor.to(device), trues_tensor.to(device), pos_weight=pos_weight.to(device))
 
     return total_loss
 
@@ -203,3 +197,13 @@ def compute_llm_relevancy_loss(batch, z_dict, llm_feedback_dict: LLMFeedback):
                 num_nodes += 1
 
     return loss / max(num_nodes, 1)
+
+
+class LinearDecayLR(LRScheduler):
+    def __init__(self, optimizer, decay_rate=0.00005, min_lr=0.00001, last_epoch=-1):
+        self.decay_rate = decay_rate
+        self.min_lr = min_lr
+        super(LinearDecayLR, self).__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        return [max(base_lr - self.decay_rate * self.last_epoch, self.min_lr) for base_lr in self.base_lrs]

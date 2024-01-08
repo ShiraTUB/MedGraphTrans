@@ -6,9 +6,9 @@ import numpy as np
 
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
-from torchmetrics.classification import BinaryRecall, BinaryF1Score, BinaryPrecision
+from torchmetrics.classification import BinaryPrecision
 
-from src.medical_hgt.ml_utils import find_most_relevant_nodes, EpochResult, ModelResult, get_time, compute_llm_relevancy_loss, compute_link_prediction_loss
+from src.medical_hgt.ml_utils import find_most_relevant_nodes, EpochResult, ModelResult, get_time, compute_llm_relevancy_loss, compute_link_prediction_loss, LinearDecayLR
 
 
 def train(llm,
@@ -23,7 +23,7 @@ def train(llm,
           question_to_subgraphs_mapping,
           num_epochs=30,
           lr=0.001,
-          link_prediction_loss_weight=0.1):
+          link_prediction_loss_weight=0.3):
     """
 
     Args:
@@ -37,7 +37,7 @@ def train(llm,
         train_llm_feedbacks_dict: a mapping from questions in the MedMCQA train dataset to the pre-computed LLM Feedback, answering the questions with and without context
         train_question_to_subgraphs_mapping: a mapping from questions in the MedMCQA train dataset to their corresponding heterogeneous graphs' nodes (in for of tuples (node_type, node_uid)
         val_llm_feedbacks_dict: a mapping from questions in the MedMCQA val dataset to the pre-computed LLM Feedback, answering the questions with and without context
-        question_to_subgraphs_mapping: a mapping from questions in the MedMCQA val dataset to their corresponding heterogeneous graphs' nodes (in for of tuples (node_type, node_uid)
+        question_to_subgraphs_mapping: a mapping from questions in the MedMCQA validation dataset to their corresponding heterogeneous graphs' nodes (in for of tuples (node_type, node_uid)
         num_epochs: upper bound for the number of epochs
         lr: learning rate
         link_prediction_loss_weight: the weight of the link prediction performance to the performance of the model
@@ -52,10 +52,9 @@ def train(llm,
     medical_hgt.train()
 
     opt = torch.optim.Adam(medical_hgt.parameters(), lr=lr)
+    scheduler = LinearDecayLR(opt)
 
     precision = BinaryPrecision()
-    recall = BinaryRecall()
-    F1 = BinaryF1Score()
 
     eval_qa_dataset = pd.DataFrame(qa_dataset['validation'])
 
@@ -87,10 +86,19 @@ def train(llm,
             pos_train_pred, neg_train_pred, z_dict = medical_hgt(batch)
 
             pos_train_y = batch["question", "question_correct_answer", "answer"].edge_label.squeeze()
-            neg_train_y = batch["question", "question_wrong_answer", "answer"].edge_label.squeeze()
-
             if pos_train_y.dim() == 0:
                 pos_train_y = pos_train_y.view(1)
+
+            # Dynamically sample negative examples
+            neg_indices = batch["question", "question_wrong_answer", "answer"].edge_label_index
+            neg_labels = batch["question", "question_wrong_answer", "answer"].edge_label.squeeze()
+
+            # Randomly sample a subset of negative examples
+            num_neg_samples = 2 # or // 3,
+            neg_sample_indices = torch.randperm(neg_indices.size(1))[:num_neg_samples * pos_train_y.size(0)]
+
+            neg_train_pred = neg_train_pred[neg_sample_indices]
+            neg_train_y = neg_labels[neg_sample_indices]
 
             if neg_train_y.dim() == 0:
                 neg_train_y = neg_train_y.view(1)
@@ -117,32 +125,28 @@ def train(llm,
         train_end_time = get_time()
 
         # Accumulate train results
-        pos_pred = torch.cat(pos_y_pred_tensors, dim=0).cpu()
-        neg_pred = torch.cat(neg_y_pred_tensors, dim=0).cpu()
-        pos_true = torch.cat(pos_y_true_tensors, dim=0).cpu()
-        neg_true = torch.cat(neg_y_true_tensors, dim=0).cpu()
+        pos_pred = torch.cat(pos_y_pred_tensors, dim=0).cpu().numpy()
+        neg_pred = torch.cat(neg_y_pred_tensors, dim=0).cpu().numpy()
+        pos_true = torch.cat(pos_y_true_tensors, dim=0).cpu().numpy()
+        neg_true = torch.cat(neg_y_true_tensors, dim=0).cpu().numpy()
 
-        pred = torch.cat([pos_pred, neg_pred])
-        true = torch.cat([pos_true, neg_true])
+        pred = np.concatenate([pos_pred, neg_pred])
+        true = np.concatenate([pos_true, neg_true])
 
         # the training ROC AUC is computed using all the predictions (and ground
         # truth labels) made during the entire epoch, across all batches. Note that
         # this is arguably a bit inconsistent with validation below since it doesn't
         # give the medical_hgt a "second try" for earlier batches, for which it couldn't
         # have yet applied anything it learned in later batches.
-        train_roc_auc = roc_auc_score(true.numpy(), pred.numpy)
-        train_precision = precision(pred, true)
-        train_recall = recall(pred, true)
-        train_f1 = F1(pred, true)
+        train_roc_auc = roc_auc_score(true, pred)
+        train_precision = precision(torch.tensor(pred), torch.tensor(true))
 
         # The validation ROC AUC is computed by running through the validation set
         # at the end of every epoch.
         val_pred, val_true, val_llm_acc_dict = evaluate(llm, medical_hgt, split_loaders, 'val', device, eval_qa_dataset, prime_kg, val_llm_feedbacks_dict, question_to_subgraphs_mapping)
 
-        val_roc_auc = roc_auc_score(val_true.numpy(), val_pred.numpy)
-        val_precision = precision(val_pred, val_true)
-        val_recall = recall(val_pred, val_true)
-        val_f1 = F1(val_pred, val_true)
+        val_roc_auc = roc_auc_score(val_true, val_pred)
+        val_precision = precision(torch.tensor(val_pred), torch.tensor(val_true))
 
         epoch_result = EpochResult(
             epoch_num=epoch_num,
@@ -151,32 +155,39 @@ def train(llm,
             mean_train_loss=round(np.mean(train_losses), 4),
             train_roc_aoc=train_roc_auc,
             train_precision=train_precision,
-            train_recall=train_recall,
-            train_f1=train_f1,
             val_roc_aoc=val_roc_auc,
             val_precision=val_precision,
-            val_recall=val_recall,
-            val_f1=val_f1,
-            llm_results=val_llm_acc_dict
+            llm_results = val_llm_acc_dict
         )
+
+        # Output the number of model params:
+        if epoch_num == 1:
+            # Total number of parameters
+            total_params = sum(p.numel() for p in medical_hgt.parameters())
+
+            # Number of trainable parameters
+            trainable_params = sum(p.numel() for p in medical_hgt.parameters() if p.requires_grad)
+
+            print(f"Total Parameters: {total_params}")
+            print(f"Trainable Parameters: {trainable_params}")
 
         epoch_results.append(epoch_result)
         print(f'\r{epoch_result}')
+
+        scheduler.step()
 
     state_dict = copy.deepcopy(medical_hgt.state_dict())
 
     # Run through the test set
     test_pred, test_true, test_llm_acc_dict = evaluate(llm, medical_hgt, split_loaders, 'test', device, eval_qa_dataset, prime_kg, val_llm_feedbacks_dict, question_to_subgraphs_mapping)
 
-    test_roc_auc = roc_auc_score(test_true.numpy(), test_pred.numpy)
-    test_precision = precision(test_pred, test_true)
-    test_recall = recall(test_pred, test_true)
-    test_f1 = F1(test_pred, test_true)
+    test_roc_auc = roc_auc_score(test_true, test_pred)
+    test_precision = precision(torch.tensor(test_pred), torch.tensor(test_true))
     medical_hgt.eval()
 
     end_time = get_time()
 
-    medical_hgt_result = ModelResult(start_time, end_time, epoch_results, state_dict, test_roc_auc, test_precision, test_recall, test_f1, test_llm_acc_dict)
+    medical_hgt_result = ModelResult(start_time, end_time, epoch_results, state_dict, test_roc_auc, test_precision, test_llm_acc_dict)
     torch.save(medical_hgt_result, file_name)
 
     train_time_min = medical_hgt_result.get_total_train_time_min()
@@ -213,8 +224,8 @@ def evaluate(llm, medical_hgt, split_loaders, split_name, device, qa_dataset, pr
     neg_y_true_tensors = []
     pos_y_pred_tensors = []
     neg_y_pred_tensors = []
-    average_llm_context_confidence_list = []
-    average_llm_context_accuracy_list = []
+    average_llm_aided_confidence_list = []
+    average_llm_aided_accuracy_list = []
     average_llm_vanilla_confidence_list = []
     average_llm_vanilla_accuracy_list = []
 
@@ -234,10 +245,20 @@ def evaluate(llm, medical_hgt, split_loaders, split_name, device, qa_dataset, pr
             pos_pred, neg_pred, z_dict = medical_hgt(batch)
 
             pos_eval_y = batch["question", "question_correct_answer", "answer"].edge_label.squeeze()
-            neg_eval_y = batch["question", "question_wrong_answer", "answer"].edge_label.squeeze()
 
             if pos_eval_y.dim() == 0:
                 pos_eval_y = pos_eval_y.view(1)
+
+            # Dynamically sample negative examples
+            neg_indices = batch["question", "question_wrong_answer", "answer"].edge_label_index
+            neg_labels = batch["question", "question_wrong_answer", "answer"].edge_label.squeeze()
+
+            # Randomly sample a subset of negative examples
+            num_neg_samples = 2 # or // 3,
+            neg_sample_indices = torch.randperm(neg_indices.size(1))[:num_neg_samples * pos_eval_y.size(0)]
+
+            neg_pred = neg_pred[neg_sample_indices]
+            neg_eval_y = neg_labels[neg_sample_indices]
 
             if neg_eval_y.dim() == 0:
                 neg_eval_y = neg_eval_y.view(1)
@@ -251,7 +272,7 @@ def evaluate(llm, medical_hgt, split_loaders, split_name, device, qa_dataset, pr
             correct_answer_map = {0: 'A', 1: 'B', 2: 'C', 3: 'D'}
             answer_letter_to_op_map = {'A': 'opa', 'B': 'opb', 'C': 'opc', 'D': 'opd'}
 
-            vanilla_accuracy_list, vanilla_confidence_list, context_accuracy_list, context_confidence_list = [], [], [], []
+            vanilla_accuracy_list, vanilla_confidence_list, llm_aided_accuracy_list, llm_aided_confidence_list = [], [], [], []
             unseen_questions_indices = batch["question", "question_correct_answer", "answer"].edge_label_index[0]
             if unseen_questions_indices.dim() == 0:
                 unseen_questions_indices = unseen_questions_indices.unsqueeze(-1)
@@ -265,48 +286,50 @@ def evaluate(llm, medical_hgt, split_loaders, split_name, device, qa_dataset, pr
                     continue
 
                 llm_feedback_without_context = llm_feedbacks_dict[question_uid]
-                subgraph_tuples = question_to_subgraphs_mapping[question_uid]
-                most_relevant_nodes = find_most_relevant_nodes(batch, z_dict, question_node_representation, subgraph_tuples, prime_kg)
-                dataset_row = qa_dataset.iloc[question_uid]
-                question_dict = dict(dataset_row.drop(['id', 'cop', 'exp']))
-                correct_answer = dataset_row['cop']
-                prompt = """Context: {}. Question: {} A. {} B. {} C. {} D. {}""".format(
-                    ",".join(most_relevant_nodes),
-                    question_dict['question'],
-                    question_dict['opa'],
-                    question_dict['opb'],
-                    question_dict['opc'],
-                    question_dict['opd']
-                )
+                if llm_feedback_without_context.cop_confidence_without_context < 0.26:
+                    subgraph_tuples = question_to_subgraphs_mapping[question_uid]
+                    most_relevant_nodes = find_most_relevant_nodes(batch, z_dict, question_node_representation, subgraph_tuples, prime_kg, k=2)
+                    dataset_row = qa_dataset.iloc[question_uid]
+                    question_dict = dict(dataset_row.drop(['id', 'cop', 'exp']))
+                    correct_answer = dataset_row['cop']
+                    prompt = """Context: {}. Question: {} A. {} B. {} C. {} D. {}""".format(
+                        ",".join(most_relevant_nodes),
+                        question_dict['question'],
+                        question_dict['opa'],
+                        question_dict['opb'],
+                        question_dict['opc'],
+                        question_dict['opd']
+                    )
 
-                # Process question with context
-                output_encodings, predictions = llm.inference(prompt)
-                llm_response_dict = llm.get_confidence(correct_answer_map[correct_answer], output_encodings, predictions)
-                if llm_response_dict['confidence'] == -1:
-                    print(f'Wrong response format. Question {i} ignored during eval')
-                    continue
+                    # Process question with context
+                    output_encodings, predictions = llm.inference(prompt)
+                    llm_response_dict = llm.get_confidence(correct_answer_map[correct_answer], output_encodings, predictions)
+                    if llm_response_dict['confidence'] == -1:
+                        print(f'Wrong response format. Question {i} ignored during eval')
+                        continue
 
-                # Accumulate Results
-                vanilla_confidence_list.append(llm_feedback_without_context.cop_confidence_without_context)
-                vanilla_accuracy_list.append(llm_feedback_without_context.is_correct_without_context)
-                context_confidence_list.append(llm_response_dict['cop_confidence'])
-                context_accuracy_list.append(llm_response_dict['accuracy'])
+                    # Accumulate Results
+                    llm_aided_confidence_list.append(llm_response_dict['cop_confidence'])
+                    llm_aided_accuracy_list.append(llm_response_dict['accuracy'])
+                    vanilla_confidence_list.append(llm_feedback_without_context.cop_confidence_without_context)
+                    vanilla_accuracy_list.append(llm_feedback_without_context.is_correct_without_context)
 
-                if not llm_feedback_without_context.is_correct_without_context and llm_response_dict['accuracy']:
-                    print("\nThe context has helped the LLM!\n")
-                    print(f"Question {question_uid}: {question_dict['question']}\n")
-                    print(f"LLM's reponse without context: {llm_feedback_without_context.response_without_context}: {question_dict[answer_letter_to_op_map[llm_feedback_without_context.response_without_context]]} --> WRONG!\n")
-                    print(f"LLM's reponse with context: {llm_response_dict['response']}: {question_dict[answer_letter_to_op_map[llm_response_dict['response']]]} --> CORRECT!")
+                else:
+                    # Accumulate Results
+                    llm_aided_confidence_list.append(llm_feedback_without_context.cop_confidence_without_context)
+                    llm_aided_accuracy_list.append(llm_feedback_without_context.is_correct_without_context)
+                    vanilla_confidence_list.append(llm_feedback_without_context.cop_confidence_without_context)
+                    vanilla_accuracy_list.append(llm_feedback_without_context.is_correct_without_context)
 
             # Calculate average performance of the batch
             batch_average_vanilla_confidence = sum(vanilla_confidence_list) / max(1, len(vanilla_confidence_list))
             batch_average_vanilla_accuracy = sum(vanilla_accuracy_list) / max(1, len(vanilla_accuracy_list))
-            batch_average_context_confidence = sum(context_confidence_list) / max(1, len(context_confidence_list))
-            batch_average_context_accuracy = sum(context_accuracy_list) / max(1, len(context_accuracy_list))
+            batch_average_context_confidence = sum(llm_aided_confidence_list) / max(1, len(llm_aided_confidence_list))
+            batch_average_context_accuracy = sum(llm_aided_accuracy_list) / max(1, len(llm_aided_accuracy_list))
 
             if batch_average_context_confidence > 0:
-                average_llm_context_confidence_list.append(batch_average_context_confidence)
-                average_llm_context_accuracy_list.append(batch_average_context_accuracy)
+                average_llm_aided_confidence_list.append(batch_average_context_confidence)
+                average_llm_aided_accuracy_list.append(batch_average_context_accuracy)
                 average_llm_vanilla_confidence_list.append(batch_average_vanilla_confidence)
                 average_llm_vanilla_accuracy_list.append(batch_average_vanilla_accuracy)
 
@@ -315,17 +338,17 @@ def evaluate(llm, medical_hgt, split_loaders, split_name, device, qa_dataset, pr
 
     medical_hgt.train()
 
-    pos_pred = torch.cat(pos_y_pred_tensors, dim=0).cpu()
-    neg_pred = torch.cat(neg_y_pred_tensors, dim=0).cpu()
-    pos_true = torch.cat(pos_y_true_tensors, dim=0).cpu()
-    neg_true = torch.cat(neg_y_true_tensors, dim=0).cpu()
+    pos_pred = torch.cat(pos_y_pred_tensors, dim=0).cpu().numpy()
+    neg_pred = torch.cat(neg_y_pred_tensors, dim=0).cpu().numpy()
+    pos_true = torch.cat(pos_y_true_tensors, dim=0).cpu().numpy()
+    neg_true = torch.cat(neg_y_true_tensors, dim=0).cpu().numpy()
 
-    pred = torch.cat([pos_pred, neg_pred])
-    true = torch.cat([pos_true, neg_true])
+    pred = np.concatenate([pos_pred, neg_pred])
+    true = np.concatenate([pos_true, neg_true])
 
     llm_results = {
         'vanilla_accuracy': sum(average_llm_vanilla_accuracy_list) / max(1, len(average_llm_vanilla_accuracy_list)),
-        'context_accuracy': sum(average_llm_context_accuracy_list) / max(1, len(average_llm_context_accuracy_list)),
+        'context_accuracy': sum(average_llm_aided_accuracy_list) / max(1, len(average_llm_aided_accuracy_list)),
     }
 
     return pred, true, llm_results

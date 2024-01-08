@@ -23,7 +23,7 @@ class MedicalQADatasetBuilder:
                  processed_data_list: List[HeteroData] = None,
                  positive_relation_type: Tuple[str, str, str] = ('question', 'question_correct_answer', 'answer'),
                  neg_relation_type: Tuple[str, str, str] = ('question', 'question_wrong_answer', 'answer'),
-                 disjoint_edges_ratio: float = 0.9,
+                 disjoint_train_edges_ratio: float = 0.9,
                  negative_sampling_ratio: int = 3,
                  batch_size: int = 32):
         """
@@ -53,7 +53,7 @@ class MedicalQADatasetBuilder:
 
         self.positive_relation_type = positive_relation_type
         self.negative_relation_type = neg_relation_type
-        self.disjoint_edges_ratio = disjoint_edges_ratio
+        self.disjoint_train_ratio = disjoint_train_edges_ratio
         self.negative_sampling_ratio = negative_sampling_ratio
 
         self.processed_train_dataset = self.processed_data_list[:self.num_train_samples].copy()
@@ -133,7 +133,7 @@ class MedicalQADatasetBuilder:
 
                 positive_perm = torch.randperm(num_positive_edges)
 
-                num_message_passing_edges = int(self.disjoint_edges_ratio * num_positive_edges)
+                num_message_passing_edges = int(self.disjoint_train_ratio * num_positive_edges)
 
                 positive_edge_index_indices = positive_perm[num_message_passing_edges:]
                 positive_edge_label_index_indices = positive_perm[:num_message_passing_edges]
