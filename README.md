@@ -25,22 +25,26 @@ The next step in the pipeline is using PrimeKG together with [MedMCQA, a large-s
 `src/preprocess/build_raw_dataset.py`. 
 
 The necessary data needed for this step can be bound under:
-- [prime_kg_nx_63960.pickle](https://drive.google.com/file/d/1-Zj4-essj2AuuGC97Lc5XPRF0dWfkuNh/view?usp=drive_link)
-- [prime_kg_embeddings_tensor_63960.pt](https://drive.google.com/file/d/1-SqPAh3okLm9VFSl3tEkEmSNmUKopuyz/view?usp=drive_link)
+- [prime_kg_nx_63960.pickle](https://drive.google.com/file/d/1aAfDzdkwR-QCgoenxSLOX0gJGOxXpXr2/view?usp=drive_link)
+- [prime_kg_embeddings_tensor_63960.pt](https://drive.google.com/file/d/1gZUYQ7JsoO2XcTffQUdbS0MxiRZQDxW8/view?usp=drive_link)
 
 ### Training the model
 
 The model developed in this project can be found under `MedTransNet/src/medical_hgt`.
 
 The necessary data needed for this step can be bound under:
-1. [prime_kg_nx_63960.pickle](https://drive.google.com/file/d/1-Zj4-essj2AuuGC97Lc5XPRF0dWfkuNh/view?usp=drive_link) - Can be generated using the `MedTransNet/src/preprocess/primeKG_generation.py` file.
-2. [llm_feedbacks_6102.pickle](https://drive.google.com/file/d/131t7p-6xVLQa-yA2hbJ3yxiW17P2ZAdx/view?usp=drive_link) - Can be generated using the `MedTransNet/src/medical_hgt/llm.py` file.
-3. [subgraphs_dict_val.pickle](https://drive.google.com/file/d/1-zSfsX-3GpmXTSTp2s8TewkWcwR9cFmU/view?usp=drive_link)
-4. [train_mini_batches_32_cpu.pickle](https://drive.google.com/file/d/1YpJtQ-1sXZeFu66DmD-j1GAZ-SvNm6uH/view?usp=drive_link)
-5. [val_mini_batches_32_cpu.pickle](https://drive.google.com/file/d/1-26H8rMOECEVmUhxuwdpB9o3udI5R2-T/view?usp=sharing)
-6. [test_mini_batches_32_cpu.pickle](https://drive.google.com/file/d/1-5zcojOgiPn7KXP5IGm1I2i7Jt4N4X-H/view?usp=drive_link)
+1. [prime_kg_nx_63960.pickle](https://drive.google.com/file/d/1aAfDzdkwR-QCgoenxSLOX0gJGOxXpXr2/view?usp=drive_link)
+2. [llm_feedbacks_train.pickle](https://drive.google.com/file/d/18H95lx5iGHY4u2N2qmJcN8GpwiB5QyWA/view?usp=drive_link)
+3. [llm_feedbacks_validation.pickle](https://drive.google.com/file/d/1qyp6FOG3_zX2hl9JALtGA39mC4piJpIK/view?usp=drive_link)
+4. [subgraphs_dict_train.pickle](https://drive.google.com/file/d/1RfEEa8E3QFSm0Zrsrf37zp4RGgOV7BjB/view?usp=drive_link)
+5. [subgraphs_dict_val.pickle](https://drive.google.com/file/d/1-zSfsX-3GpmXTSTp2s8TewkWcwR9cFmU/view?usp=drive_link)
+6. [train_mini_batches_32_cpu.pickle](https://drive.google.com/file/d/1fT71rr6LwP7ap-rwpmwFKk1kHFfEvnQd/view?usp=drive_link)
+7. [val_mini_batches_32_cpu.pickle](https://drive.google.com/file/d/1-26H8rMOECEVmUhxuwdpB9o3udI5R2-T/view?usp=sharing)
+8. [test_mini_batches_32_cpu.pickle](https://drive.google.com/file/d/1WbMKq0RFuccfSmyuc3yvaWSNfH1-ubrd/view?usp=drive_link)
 
-* Files 3. to 6. can be generated using the `MedTransNet/src/medical_hgt/dataset_builder.py` file.
+* File 1. can be generated using the `MedTransNet/src/preprocess/primeKG_generation.py` file.
+* Files 2.and 3. can be generated using the `MedTransNet/src/medical_hgt/llm.py` file.
+* Files 4. to 8. can be generated using the `MedTransNet/src/medical_hgt/dataset_builder.py` file.
 
 
 ### It is expected that all downloaded files will be saved under the following path: 
@@ -48,4 +52,4 @@ The necessary data needed for this step can be bound under:
     MedGraphTrans/datasets
     ```
 
-#### This project is developed as a Bachelor's Thesis in the Technical University of Berlin. Wo
+#### This project is developed as a Bachelor's Thesis in the Technical University of Berlin

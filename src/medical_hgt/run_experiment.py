@@ -9,11 +9,13 @@ from config import ROOT_DIR
 parser = argparse.ArgumentParser(description='Training HGT on PrimeKG + Medmcqa')
 parser.add_argument('--experiment_output_path', type=str, default='experiments', help='Path of the target experiments folder')
 parser.add_argument('--prime_kg_dataset', type=str, default='datasets/primeKG_nx_medium.pickle', help='PrimeKG pickle path')
-parser.add_argument('--train_dataset', type=str, default='datasets/train_data_01_12_23.pickle', help='Processed train data pickle path')
-parser.add_argument('--val_dataset', type=str, default='datasets/val_data_01_12_23.pickle', help='Processed val data pickle path')
-parser.add_argument('--test_dataset', type=str, default='datasets/test_data_01_12_23.pickle', help='Processed test data pickle path')
-parser.add_argument('--llm_feedback', type=str, default='datasets/llm_feedback/llm_feedbacks_test_100.pickle', help='Processed llm feedback')
-parser.add_argument('--kg_subgraphs_mapping', type=str, default='datasets/subgraphs_dict.pickle', help='Mapping between question ids and their respective subgraphs')
+parser.add_argument('--train_dataset', type=str, default='datasets/train_mini_batches_32_cpu.pickle', help='Processed train data pickle path')
+parser.add_argument('--val_dataset', type=str, default='datasets/val_mini_batches_32_cpu.pickle', help='Processed val data pickle path')
+parser.add_argument('--test_dataset', type=str, default='datasets/test_mini_batches_cpu_32.pickle', help='Processed test data pickle path')
+parser.add_argument('--train_llm_feedback', type=str, default='datasets//llm_feedbacks_train.pickle', help='Processed llm feedback (train set)')
+parser.add_argument('--val_llm_feedback', type=str, default='datasets/llm_feedback/llm_feedbacks_validation.pickle', help='Processed validation llm feedback (validation set)')
+parser.add_argument('--kg_train_subgraphs_mapping', type=str, default='datasets/subgraphs_dict_train.pickle', help='Mapping between train question ids and their respective subgraphs')
+parser.add_argument('--kg_val_subgraphs_mapping', type=str, default='datasets/subgraphs_dict_val.pickle', help='Mapping between validation question ids and their respective subgraphs')
 
 args = parser.parse_args()
 
@@ -52,3 +54,10 @@ def run_experiments(experiment_params, device, llm, train_llm_feedbacks_dict, va
                                lr=experiment_params.lr)
 
     return medical_hgt_result
+
+
+if __name__ == '__main__':
+    experiment = ExperimentsParams(num_epochs=50, lr=0.001, channels=32, num_heads=2, num_layers=1)
+
+    # Load data and run experiment
+
