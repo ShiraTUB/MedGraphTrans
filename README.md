@@ -1,5 +1,6 @@
 # MedGraphTrans
 A model architecture which utilizes a medical KG to enrich the prompt of an instructional LLM.
+This project is developed as a [Bachelor's Thesis](https://drive.google.com/file/d/1jlIEOsitvMv1iQ7fC7qWHDbG8xYUH8WQ/view?usp=drive_link) in the Technical University of Berlin.
 
 ## Installation
 `pip install -r requirements.txt`
@@ -51,5 +52,3 @@ The necessary data needed for this step can be bound under:
     ```
     MedGraphTrans/datasets
     ```
-
-#### This project is developed as a [Bachelor's Thesis](https://drive.google.com/file/d/1jlIEOsitvMv1iQ7fC7qWHDbG8xYUH8WQ/view?usp=drive_link) in the Technical University of Berlin.
