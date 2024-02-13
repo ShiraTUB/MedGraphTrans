@@ -52,4 +52,4 @@ The necessary data needed for this step can be bound under:
     MedGraphTrans/datasets
     ```
 
-#### This project is developed as a [Bachelor's Thesis]([https://drive.google.com/file/d/1aAfDzdkwR-QCgoenxSLOX0gJGOxXpXr2/view?usp=drive_link](https://drive.google.com/file/d/1jlIEOsitvMv1iQ7fC7qWHDbG8xYUH8WQ/view?usp=drive_link)https://drive.google.com/file/d/1jlIEOsitvMv1iQ7fC7qWHDbG8xYUH8WQ/view?usp=drive_link) in the Technical University of Berlin.
+#### This project is developed as a [Bachelor's Thesis](https://drive.google.com/file/d/1jlIEOsitvMv1iQ7fC7qWHDbG8xYUH8WQ/view?usp=drive_link) in the Technical University of Berlin.
